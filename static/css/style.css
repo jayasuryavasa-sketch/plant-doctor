@@ -19,3 +19,8 @@
 .hero-art:after{width:58px;height:58px;right:13%;bottom:14%;opacity:.45}
 .hero-art .leaf{inset:10% 25%;transform:rotate(-3deg) translateZ(45px)}
 .hero-art .scan-box{left:32%;top:29%;width:178px;height:178px;transform:translateZ(78px);box-shadow:0 0 0 8px rgba(255,255,255,.08),0 0 22px rgba(255,255,255,.22)}
+/* Final composition: keep the illustration quiet so the leaf reads clearly. */
+.hero-art{border-radius:24px;background:linear-gradient(145deg,#edf9e9,#d5efd3 58%,#c6e7cb);box-shadow:inset 10px 12px 24px rgba(255,255,255,.5),inset -14px -16px 28px rgba(8,66,31,.1),0 16px 32px rgba(22,101,52,.1)}
+.hero-art:before,.hero-art:after{display:none}
+.hero-art .leaf{inset:10% 28%;transform:rotate(0deg) translateZ(34px)}
+.hero-art .scan-box{left:32%;top:29%;width:170px;height:170px;transform:translateZ(68px);box-shadow:0 0 0 7px rgba(255,255,255,.08),0 0 18px rgba(255,255,255,.2)}

@@ -1,40 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 580" role="img" aria-labelledby="title desc">
-  <title id="title">Natural plant leaf</title>
-  <desc id="desc">A simple, softly shaded leaf with a central vein.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 600" role="img" aria-labelledby="title desc">
+  <title id="title">Leaf illustration</title>
+  <desc id="desc">A simple upright green leaf with a central vein.</desc>
   <defs>
-    <linearGradient id="green" x1=".12" y1=".06" x2=".88" y2=".94">
-      <stop stop-color="#a7df70"/>
-      <stop offset=".3" stop-color="#40b75f"/>
-      <stop offset=".72" stop-color="#087b47"/>
-      <stop offset="1" stop-color="#064a30"/>
+    <linearGradient id="leafColor" x1=".12" y1=".08" x2=".86" y2=".92">
+      <stop stop-color="#9fdf70"/>
+      <stop offset=".32" stop-color="#43b760"/>
+      <stop offset=".72" stop-color="#087e49"/>
+      <stop offset="1" stop-color="#075033"/>
     </linearGradient>
-    <linearGradient id="light" x1="0" y1="0" x2="1" y2="0">
-      <stop stop-color="#ffffff" stop-opacity=".23"/>
-      <stop offset=".48" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#003923" stop-opacity=".2"/>
+    <linearGradient id="softLight" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#f5ffd9" stop-opacity=".25"/>
+      <stop offset=".52" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#003b26" stop-opacity=".18"/>
     </linearGradient>
     <linearGradient id="vein" x1="0" y1="1" x2="1" y2="0">
-      <stop stop-color="#a7e779"/>
-      <stop offset=".55" stop-color="#e8ffb0"/>
-      <stop offset="1" stop-color="#94d967"/>
+      <stop stop-color="#8fda66"/>
+      <stop offset=".5" stop-color="#e9ffb4"/>
+      <stop offset="1" stop-color="#92d768"/>
     </linearGradient>
-    <clipPath id="shape">
-      <path d="M260 545C154 499 92 401 96 292 100 169 180 77 410 34 392 168 341 391 260 545Z"/>
+    <clipPath id="leafShape">
+      <path d="M260 560C165 502 108 394 114 278 120 163 181 79 260 34 339 79 400 163 406 278 412 394 355 502 260 560Z"/>
     </clipPath>
-    <filter id="shadow" x="-20%" y="-20%" width="150%" height="160%">
-      <feDropShadow dx="10" dy="15" stdDeviation="11" flood-color="#064b2e" flood-opacity=".22"/>
+    <filter id="drop" x="-20%" y="-20%" width="150%" height="160%">
+      <feDropShadow dx="9" dy="14" stdDeviation="10" flood-color="#064b2e" flood-opacity=".2"/>
     </filter>
   </defs>
 
-  <g filter="url(#shadow)">
-    <path d="M260 545C154 499 92 401 96 292 100 169 180 77 410 34 392 168 341 391 260 545Z" fill="url(#green)"/>
-    <path d="M260 545C154 499 92 401 96 292 100 169 180 77 410 34 392 168 341 391 260 545Z" fill="url(#light)"/>
-    <g clip-path="url(#shape)" fill="none" stroke-linecap="round">
-      <path d="M260 541C286 405 343 184 407 38" stroke="url(#vein)" stroke-width="6"/>
-      <path d="M270 485C214 464 158 435 108 399M281 429C218 411 155 378 101 337M294 369C229 351 169 322 108 272M310 307C255 293 204 266 146 215M326 248C282 234 238 211 190 165M345 190C315 180 282 161 244 123" stroke="#d9ffa2" stroke-opacity=".36" stroke-width="3"/>
-      <path d="M271 485C321 463 363 435 395 405M282 429C336 406 379 376 412 342M294 369C347 347 389 318 423 282M309 307C359 287 399 260 428 225M325 248C364 232 395 211 421 181M343 191C370 180 391 163 411 141" stroke="#b9f087" stroke-opacity=".28" stroke-width="3"/>
-      <path d="M157 106C125 179 123 264 151 337 169 383 199 425 238 458" stroke="#f3ffd4" stroke-opacity=".13" stroke-width="23"/>
+  <g filter="url(#drop)">
+    <path d="M260 560C165 502 108 394 114 278 120 163 181 79 260 34 339 79 400 163 406 278 412 394 355 502 260 560Z" fill="url(#leafColor)"/>
+    <path d="M260 560C165 502 108 394 114 278 120 163 181 79 260 34 339 79 400 163 406 278 412 394 355 502 260 560Z" fill="url(#softLight)"/>
+    <g clip-path="url(#leafShape)" fill="none" stroke-linecap="round">
+      <path d="M260 556C260 413 260 190 260 39" stroke="url(#vein)" stroke-width="6"/>
+      <path d="M260 475C211 451 166 420 128 380M260 414C207 393 166 364 120 323M260 350C211 334 170 308 123 263M260 287C217 273 183 249 139 205M260 225C224 211 198 190 164 153" stroke="#d9ffa2" stroke-opacity=".34" stroke-width="3"/>
+      <path d="M260 475C309 451 354 420 392 380M260 414C313 393 354 364 400 323M260 350C309 334 350 308 397 263M260 287C303 273 337 249 381 205M260 225C296 211 322 190 356 153" stroke="#b9f087" stroke-opacity=".27" stroke-width="3"/>
+      <path d="M181 93C149 171 145 260 168 336 185 393 213 440 244 477" stroke="#f3ffd4" stroke-opacity=".12" stroke-width="21"/>
     </g>
-    <path d="M260 545C257 556 259 565 265 574" fill="none" stroke="#82bd59" stroke-width="7" stroke-linecap="round"/>
+    <path d="M260 560C257 571 259 580 264 588" fill="none" stroke="#82bd59" stroke-width="7" stroke-linecap="round"/>
   </g>
 </svg>
