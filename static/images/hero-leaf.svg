@@ -30,7 +30,7 @@
     <path d="M260 560C165 502 108 394 114 278 120 163 181 79 260 34 339 79 400 163 406 278 412 394 355 502 260 560Z" fill="url(#leafColor)"/>
     <path d="M260 560C165 502 108 394 114 278 120 163 181 79 260 34 339 79 400 163 406 278 412 394 355 502 260 560Z" fill="url(#softLight)"/>
     <g clip-path="url(#leafShape)" fill="none" stroke-linecap="round">
-      <path d="M260 556C260 413 260 190 260 39" stroke="url(#vein)" stroke-width="6"/>
+      <path d="M260 556C273 424 291 186 260 39" stroke="url(#vein)" stroke-width="6"/>
       <path d="M260 475C211 451 166 420 128 380M260 414C207 393 166 364 120 323M260 350C211 334 170 308 123 263M260 287C217 273 183 249 139 205M260 225C224 211 198 190 164 153" stroke="#d9ffa2" stroke-opacity=".34" stroke-width="3"/>
       <path d="M260 475C309 451 354 420 392 380M260 414C313 393 354 364 400 323M260 350C309 334 350 308 397 263M260 287C303 273 337 249 381 205M260 225C296 211 322 190 356 153" stroke="#b9f087" stroke-opacity=".27" stroke-width="3"/>
       <path d="M181 93C149 171 145 260 168 336 185 393 213 440 244 477" stroke="#f3ffd4" stroke-opacity=".12" stroke-width="21"/>
