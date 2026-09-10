@@ -5,11 +5,12 @@ import sqlite3
 from pathlib import Path
 from uuid import uuid4
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 from utils.disease_data import all_diseases, get_disease
+from utils.advice import answer_question
 from utils.image_validation import ImageValidationError, validate_image
 from utils.prediction import PlantPredictor
 
@@ -32,6 +33,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         CONFIDENCE_THRESHOLD=float(os.environ.get("CONFIDENCE_THRESHOLD", "0.65")),
         HF_TOKEN=os.environ.get("HF_TOKEN", ""),
         HF_MODEL=os.environ.get("HF_MODEL", "imaflower/plantvillage-mobilenetv3"),
+        USE_LOCAL_MODEL=os.environ.get("USE_LOCAL_MODEL", "false").lower() == "true",
+        LOCAL_HF_MODEL=os.environ.get("LOCAL_HF_MODEL", "VaigandlaHemanth/leaf-disease-clip-vit"),
     )
     if test_config:
         app.config.update(test_config)
@@ -45,6 +48,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         confidence_threshold=app.config["CONFIDENCE_THRESHOLD"],
         hf_token=app.config["HF_TOKEN"],
         hf_model=app.config["HF_MODEL"],
+        use_local_model=app.config["USE_LOCAL_MODEL"],
+        local_hf_model=app.config["LOCAL_HF_MODEL"],
     )
 
     @app.context_processor
@@ -83,7 +88,7 @@ def create_app(test_config: dict | None = None) -> Flask:
             flash("We couldn't analyze this image right now. Please try again.", "error")
             return redirect(url_for("scan"))
 
-        disease = get_disease(result.class_name) if not result.is_uncertain else None
+        disease = get_disease(result.class_name)
         scan_id = save_scan(app, stored_name, result, disease)
         return redirect(url_for("result", scan_id=scan_id))
 
@@ -92,8 +97,16 @@ def create_app(test_config: dict | None = None) -> Flask:
         scan = get_scan(app, scan_id)
         if scan is None:
             abort(404)
-        disease = get_disease(scan["class_name"]) if not scan["is_uncertain"] else None
+        disease = get_disease(scan["class_name"])
         return render_template("result.html", scan=scan, disease=disease)
+
+    @app.post("/result/<int:scan_id>/ask")
+    def ask_plant_doctor(scan_id: int):
+        scan = get_scan(app, scan_id)
+        if scan is None:
+            return jsonify({"error": "This scan could not be found."}), 404
+        question = str((request.get_json(silent=True) or {}).get("question", ""))[:500]
+        return jsonify({"answer": answer_question(question, get_disease(scan["class_name"]))})
 
     @app.get("/history")
     def history():

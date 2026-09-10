@@ -19,7 +19,8 @@ class PlantPredictor:
     """Uses a trained MobileNetV3 checkpoint when available; otherwise a deterministic demo."""
 
     def __init__(self, model_path: Path, classes_path: Path, confidence_threshold: float = 0.65,
-                 hf_token: str = "", hf_model: str = ""):
+                 hf_token: str = "", hf_model: str = "", use_local_model: bool = False,
+                 local_hf_model: str = ""):
         self.model_path = model_path
         self.classes_path = classes_path
         self.confidence_threshold = confidence_threshold
@@ -28,7 +29,12 @@ class PlantPredictor:
         self.mode = "demo"
         self.hf_token = hf_token
         self.hf_model = hf_model
+        self.use_local_model = use_local_model
+        self.local_hf_model = local_hf_model
+        self.processor = None
         self._load_real_model()
+        if self.model is None and self.use_local_model:
+            self._load_free_local_model()
 
     def _load_real_model(self) -> None:
         if not (self.model_path.exists() and self.classes_path.exists()):
@@ -49,8 +55,23 @@ class PlantPredictor:
             self.model = None
             self.mode = "demo"
 
+    def _load_free_local_model(self) -> None:
+        """Load a public PlantVillage model locally; no API key or paid service."""
+        try:
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
+            self.processor = AutoImageProcessor.from_pretrained(self.local_hf_model)
+            self.model = AutoModelForImageClassification.from_pretrained(self.local_hf_model)
+            self.model.eval()
+            self.mode = "local PlantVillage model"
+        except Exception:
+            self.model = None
+            self.processor = None
+            self.mode = "demo"
+
     def predict(self, image_path: Path) -> Prediction:
         if self.model is not None:
+            if self.processor is not None:
+                return self._predict_local_transformers(image_path)
             return self._predict_real(image_path)
         if self.hf_token and self.hf_model:
             try:
@@ -59,6 +80,19 @@ class PlantPredictor:
                 # Network/API availability must not make the core app unusable.
                 pass
         return self._predict_demo(image_path)
+
+    def _predict_local_transformers(self, image_path: Path) -> Prediction:
+        import torch
+        from PIL import Image
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(images=image, return_tensors="pt")
+        with torch.no_grad():
+            probabilities = torch.softmax(self.model(**inputs).logits[0], dim=0)
+        confidence, index = probabilities.max(0)
+        label = self.model.config.id2label.get(str(index.item()), str(index.item()))
+        plant = label.split("___", 1)[0].replace("_", " ").title()
+        score = float(confidence.item())
+        return Prediction(label, plant, score, score < self.confidence_threshold, self.mode)
 
     def _predict_huggingface(self, image_path: Path) -> Prediction:
         """Optional hosted inference. Token remains server-side in .env, never JavaScript."""
