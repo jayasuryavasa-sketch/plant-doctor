@@ -1,0 +1,1 @@
+"""Plant Doctor application helpers."""

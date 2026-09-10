@@ -1,0 +1,11 @@
+Flask>=3.0,<4.0
+gunicorn>=23.0,<24.0
+Pillow>=10.0,<12.0
+Werkzeug>=3.0,<4.0
+pytest>=8.0,<9.0
+python-dotenv>=1.0,<2.0
+huggingface_hub>=0.30,<1.0
+# Optional real-model training/inference packages:
+# torch>=2.2
+# torchvision>=0.17
+# scikit-learn>=1.4
