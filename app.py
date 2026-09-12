@@ -10,6 +10,11 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
+try:
+    from authlib.integrations.flask_client import OAuth
+except ImportError:  # Local development can still use the anonymous fallback.
+    OAuth = None
+
 from utils.disease_data import all_diseases, get_disease
 from utils.advice import answer_question
 from utils.image_validation import ImageValidationError, validate_image
@@ -38,6 +43,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         USE_LOCAL_MODEL=os.environ.get("USE_LOCAL_MODEL", "false").lower() == "true",
         LOCAL_HF_MODEL=os.environ.get("LOCAL_HF_MODEL", "VaigandlaHemanth/leaf-disease-clip-vit"),
         DAILY_SCAN_LIMIT=int(os.environ.get("DAILY_SCAN_LIMIT", str(DEFAULT_DAILY_SCAN_LIMIT))),
+        GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
+        GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
     )
     if test_config:
         app.config.update(test_config)
@@ -45,6 +52,19 @@ def create_app(test_config: dict | None = None) -> Flask:
     Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
     Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
     init_db(app)
+    app.extensions["auth_enabled"] = bool(
+        OAuth and app.config["GOOGLE_CLIENT_ID"] and app.config["GOOGLE_CLIENT_SECRET"]
+    )
+    if app.extensions["auth_enabled"]:
+        oauth = OAuth(app)
+        oauth.register(
+            name="google",
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_id=app.config["GOOGLE_CLIENT_ID"],
+            client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+            client_kwargs={"scope": "openid email profile"},
+        )
+        app.extensions["oauth"] = oauth
     app.extensions["predictor"] = PlantPredictor(
         model_path=BASE_DIR / "model" / "plant_disease_model.pth",
         classes_path=BASE_DIR / "model" / "class_names.json",
@@ -57,16 +77,61 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.context_processor
     def globals_for_templates():
-        return {"model_mode": app.extensions["predictor"].mode}
+        return {
+            "model_mode": app.extensions["predictor"].mode,
+            "auth_enabled": app.extensions["auth_enabled"],
+            "current_user": get_current_user(app),
+        }
 
     @app.get("/")
     def index():
         return render_template("index.html")
 
+    @app.get("/login")
+    def login():
+        if not app.extensions["auth_enabled"]:
+            flash("Google sign-in is not configured yet. The site is using browser-based limits for now.", "error")
+            return redirect(url_for("scan"))
+        next_url = safe_next_url(request.args.get("next"))
+        if next_url:
+            session["login_next"] = next_url
+        redirect_uri = url_for("auth_callback", _external=True)
+        return app.extensions["oauth"].create_client("google").authorize_redirect(redirect_uri)
+
+    @app.get("/auth/google/callback")
+    def auth_callback():
+        if not app.extensions["auth_enabled"]:
+            return redirect(url_for("scan"))
+        google = app.extensions["oauth"].create_client("google")
+        try:
+            token = google.authorize_access_token()
+            userinfo = token.get("userinfo") or google.userinfo()
+        except Exception:
+            app.logger.exception("Google sign-in failed")
+            flash("Google sign-in could not be completed. Please try again.", "error")
+            return redirect(url_for("index"))
+        google_sub = str(userinfo.get("sub", "")).strip()
+        email = str(userinfo.get("email", "")).strip().lower()
+        if not google_sub or not email or userinfo.get("email_verified") not in (True, 1, "true"):
+            flash("Google did not provide a usable verified account.", "error")
+            return redirect(url_for("index"))
+        user_id = upsert_google_user(app, google_sub, email, userinfo.get("name", ""), userinfo.get("picture", ""))
+        session["user_id"] = user_id
+        session.pop("quota_client_id", None)
+        return redirect(session.pop("login_next", None) or url_for("scan"))
+
+    @app.get("/logout")
+    def logout():
+        session.pop("user_id", None)
+        flash("You have been signed out.", "success")
+        return redirect(url_for("index"))
+
     @app.route("/scan", methods=["GET", "POST"])
     def scan():
+        if app.extensions["auth_enabled"] and get_current_user(app) is None:
+            return redirect(url_for("login", next=request.path))
         if request.method == "GET":
-            status = get_scan_quota_status(app, get_quota_client_id())
+            status = get_scan_quota_status(app, get_quota_subject(app))
             return render_template("scan.html", quota=status)
         file = request.files.get("image")
         if not file or not file.filename:
@@ -81,7 +146,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         try:
             file.save(image_path)
             validate_image(image_path, max_bytes=MAX_UPLOAD_BYTES)
-            if not consume_scan_quota(app, get_quota_client_id()):
+            if not consume_scan_quota(app, get_quota_subject(app)):
                 image_path.unlink(missing_ok=True)
                 flash(f"You have used all {app.config['DAILY_SCAN_LIMIT']} scans for today. Please try again tomorrow.", "error")
                 return redirect(url_for("scan"))
@@ -118,8 +183,14 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.get("/history")
     def history():
+        if app.extensions["auth_enabled"] and get_current_user(app) is None:
+            return redirect(url_for("login", next=request.path))
+        user = get_current_user(app)
         with connect(app) as db:
-            scans = db.execute("SELECT * FROM scans ORDER BY created_at DESC").fetchall()
+            if user:
+                scans = db.execute("SELECT * FROM scans WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)).fetchall()
+            else:
+                scans = db.execute("SELECT * FROM scans ORDER BY created_at DESC").fetchall()
         return render_template("history.html", scans=scans)
 
     @app.post("/history/<int:scan_id>/delete")
@@ -185,7 +256,18 @@ def init_db(app: Flask) -> None:
             severity TEXT,
             is_uncertain INTEGER NOT NULL DEFAULT 0,
             mode TEXT NOT NULL,
+            user_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""")
+        ensure_column(db, "scans", "user_id", "INTEGER")
+        db.execute("""CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            google_sub TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            name TEXT,
+            picture TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_login_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
         db.execute("""CREATE TABLE IF NOT EXISTS scan_usage (
             client_id TEXT PRIMARY KEY,
@@ -195,6 +277,45 @@ def init_db(app: Flask) -> None:
         db.commit()
 
 
+def ensure_column(db, table: str, column: str, definition: str) -> None:
+    columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def safe_next_url(value: str | None) -> str | None:
+    if value and value.startswith("/") and not value.startswith("//"):
+        return value
+    return None
+
+
+def get_current_user(app: Flask):
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    with connect(app) as db:
+        return db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def upsert_google_user(app: Flask, google_sub: str, email: str, name: str, picture: str) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(app) as db:
+        row = db.execute("SELECT id FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+        if row:
+            db.execute(
+                "UPDATE users SET email = ?, name = ?, picture = ?, last_login_at = ? WHERE id = ?",
+                (email, name, picture, now, row["id"]),
+            )
+            db.commit()
+            return row["id"]
+        cursor = db.execute(
+            "INSERT INTO users (google_sub, email, name, picture, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (google_sub, email, name, picture, now, now),
+        )
+        db.commit()
+        return cursor.lastrowid
+
+
 def get_quota_client_id() -> str:
     """Return a signed browser-session identifier for the daily scan quota."""
     client_id = session.get("quota_client_id")
@@ -202,6 +323,13 @@ def get_quota_client_id() -> str:
         client_id = uuid4().hex
         session["quota_client_id"] = client_id
     return client_id
+
+
+def get_quota_subject(app: Flask) -> str:
+    user = get_current_user(app)
+    if user:
+        return f"user:{user['id']}"
+    return f"browser:{get_quota_client_id()}"
 
 
 def _quota_today() -> str:
@@ -250,19 +378,24 @@ def consume_scan_quota(app: Flask, client_id: str) -> bool:
 
 
 def save_scan(app: Flask, image_name: str, prediction, disease: dict | None) -> int:
+    user = get_current_user(app)
     with connect(app) as db:
         cursor = db.execute(
-            """INSERT INTO scans (image_name, class_name, plant_name, confidence, severity, is_uncertain, mode)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO scans (image_name, class_name, plant_name, confidence, severity, is_uncertain, mode, user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (image_name, prediction.class_name, prediction.plant, prediction.confidence,
-             disease.get("severity") if disease else None, int(prediction.is_uncertain), prediction.mode),
+             disease.get("severity") if disease else None, int(prediction.is_uncertain), prediction.mode,
+             user["id"] if user else None),
         )
         db.commit()
         return cursor.lastrowid
 
 
 def get_scan(app: Flask, scan_id: int):
+    user = get_current_user(app)
     with connect(app) as db:
+        if app.extensions.get("auth_enabled") and user:
+            return db.execute("SELECT * FROM scans WHERE id = ? AND user_id = ?", (scan_id, user["id"])).fetchone()
         return db.execute("SELECT * FROM scans WHERE id = ?", (scan_id,)).fetchone()
 
 

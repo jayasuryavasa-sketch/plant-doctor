@@ -13,6 +13,7 @@ Plant Doctor is a responsive Flask web app for AI-assisted leaf-image checks. It
 - Clearly marked **demo mode** until real model weights are trained and added
 - Separate JSON disease-information layer (not embedded in model code)
 - SQLite scan history with result viewing and deletion
+- Optional Google sign-in with a per-account daily scan limit
 - Searchable/filterable Disease Guide, About, and responsible-use content
 - CPU-friendly MobileNetV3-small transfer-learning trainer and evaluator
 
@@ -91,6 +92,18 @@ python app.py
 ```
 
 `app.py` owns routes and SQLite; `utils/image_validation.py` protects uploads; `utils/prediction.py` owns inference; `data/diseases.json` owns readable guidance; templates and static files own the frontend. Uploads and the local database are intentionally excluded from Git.
+
+### Google sign-in and the daily limit
+
+When `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set, users sign in with Google before scanning. The app checks that Google has verified the email address, stores only the Google account identifier and basic profile details, and counts up to `DAILY_SCAN_LIMIT` scans per account per UTC day (20 by default). Without these two settings, the app keeps the browser-based fallback quota so local development still works.
+
+For Render, create a Google OAuth **Web application** client and add this authorized redirect URI:
+
+```text
+https://YOUR-RENDER-DOMAIN.onrender.com/auth/google/callback
+```
+
+Then add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as Render environment variables. Keep the client secret private; never commit it or put it in a screenshot. Google requires the redirect URI to match exactly.
 
 ## Testing
 
