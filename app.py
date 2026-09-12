@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
@@ -21,6 +22,7 @@ UPLOAD_DIR = BASE_DIR / "static" / "uploads"
 DATABASE_PATH = BASE_DIR / "database" / "plant_doctor.db"
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+DEFAULT_DAILY_SCAN_LIMIT = 20
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -35,6 +37,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         HF_MODEL=os.environ.get("HF_MODEL", "imaflower/plantvillage-mobilenetv3"),
         USE_LOCAL_MODEL=os.environ.get("USE_LOCAL_MODEL", "false").lower() == "true",
         LOCAL_HF_MODEL=os.environ.get("LOCAL_HF_MODEL", "VaigandlaHemanth/leaf-disease-clip-vit"),
+        DAILY_SCAN_LIMIT=int(os.environ.get("DAILY_SCAN_LIMIT", str(DEFAULT_DAILY_SCAN_LIMIT))),
     )
     if test_config:
         app.config.update(test_config)
@@ -63,7 +66,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.route("/scan", methods=["GET", "POST"])
     def scan():
         if request.method == "GET":
-            return render_template("scan.html")
+            status = get_scan_quota_status(app, get_quota_client_id())
+            return render_template("scan.html", quota=status)
         file = request.files.get("image")
         if not file or not file.filename:
             flash("Choose a JPG, PNG, or WEBP photo of a leaf first.", "error")
@@ -77,6 +81,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         try:
             file.save(image_path)
             validate_image(image_path, max_bytes=MAX_UPLOAD_BYTES)
+            if not consume_scan_quota(app, get_quota_client_id()):
+                image_path.unlink(missing_ok=True)
+                flash(f"You have used all {app.config['DAILY_SCAN_LIMIT']} scans for today. Please try again tomorrow.", "error")
+                return redirect(url_for("scan"))
             result = app.extensions["predictor"].predict(image_path)
         except ImageValidationError as exc:
             image_path.unlink(missing_ok=True)
@@ -179,7 +187,66 @@ def init_db(app: Flask) -> None:
             mode TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS scan_usage (
+            client_id TEXT PRIMARY KEY,
+            usage_date TEXT NOT NULL,
+            scan_count INTEGER NOT NULL DEFAULT 0
+        )""")
         db.commit()
+
+
+def get_quota_client_id() -> str:
+    """Return a signed browser-session identifier for the daily scan quota."""
+    client_id = session.get("quota_client_id")
+    if not client_id:
+        client_id = uuid4().hex
+        session["quota_client_id"] = client_id
+    return client_id
+
+
+def _quota_today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def get_scan_quota_status(app: Flask, client_id: str) -> dict:
+    with connect(app) as db:
+        row = db.execute(
+            "SELECT usage_date, scan_count FROM scan_usage WHERE client_id = ?",
+            (client_id,),
+        ).fetchone()
+    used = row["scan_count"] if row and row["usage_date"] == _quota_today() else 0
+    limit = app.config["DAILY_SCAN_LIMIT"]
+    return {"limit": limit, "used": used, "remaining": max(0, limit - used)}
+
+
+def consume_scan_quota(app: Flask, client_id: str) -> bool:
+    """Consume one daily scan slot; return False when the browser has reached its limit."""
+    today = _quota_today()
+    limit = app.config["DAILY_SCAN_LIMIT"]
+    with connect(app) as db:
+        row = db.execute(
+            "SELECT usage_date, scan_count FROM scan_usage WHERE client_id = ?",
+            (client_id,),
+        ).fetchone()
+        if row is None:
+            db.execute(
+                "INSERT INTO scan_usage (client_id, usage_date, scan_count) VALUES (?, ?, 1)",
+                (client_id, today),
+            )
+            return True
+        if row["usage_date"] != today:
+            db.execute(
+                "UPDATE scan_usage SET usage_date = ?, scan_count = 1 WHERE client_id = ?",
+                (today, client_id),
+            )
+            return True
+        if row["scan_count"] >= limit:
+            return False
+        db.execute(
+            "UPDATE scan_usage SET scan_count = scan_count + 1 WHERE client_id = ?",
+            (client_id,),
+        )
+        return True
 
 
 def save_scan(app: Flask, image_name: str, prediction, disease: dict | None) -> int:
