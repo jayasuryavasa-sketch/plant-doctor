@@ -167,6 +167,8 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.get("/result/<int:scan_id>")
     def result(scan_id: int):
+        if app.extensions["auth_enabled"] and get_current_user(app) is None:
+            return redirect(url_for("login", next=request.path))
         scan = get_scan(app, scan_id)
         if scan is None:
             abort(404)
@@ -175,6 +177,8 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.post("/result/<int:scan_id>/ask")
     def ask_plant_doctor(scan_id: int):
+        if app.extensions["auth_enabled"] and get_current_user(app) is None:
+            return jsonify({"error": "Please sign in with Google before asking about a scan."}), 401
         scan = get_scan(app, scan_id)
         if scan is None:
             return jsonify({"error": "This scan could not be found."}), 404
@@ -394,6 +398,8 @@ def save_scan(app: Flask, image_name: str, prediction, disease: dict | None) -> 
 def get_scan(app: Flask, scan_id: int):
     user = get_current_user(app)
     with connect(app) as db:
+        if app.extensions.get("auth_enabled") and not user:
+            return None
         if app.extensions.get("auth_enabled") and user:
             return db.execute("SELECT * FROM scans WHERE id = ? AND user_id = ?", (scan_id, user["id"])).fetchone()
         return db.execute("SELECT * FROM scans WHERE id = ?", (scan_id,)).fetchone()
