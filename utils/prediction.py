@@ -69,17 +69,56 @@ class PlantPredictor:
             self.mode = "demo"
 
     def predict(self, image_path: Path) -> Prediction:
+        result: Prediction
         if self.model is not None:
             if self.processor is not None:
-                return self._predict_local_transformers(image_path)
-            return self._predict_real(image_path)
-        if self.hf_token and self.hf_model:
+                result = self._predict_local_transformers(image_path)
+            else:
+                result = self._predict_real(image_path)
+        elif self.hf_token and self.hf_model:
             try:
-                return self._predict_huggingface(image_path)
+                result = self._predict_huggingface(image_path)
             except Exception:
                 # Network/API availability must not make the core app unusable.
-                pass
-        return self._predict_demo(image_path)
+                result = self._predict_demo(image_path)
+        else:
+            result = self._predict_demo(image_path)
+        return self._apply_visible_damage_guard(image_path, result)
+
+    def _apply_visible_damage_guard(self, image_path: Path, result: Prediction) -> Prediction:
+        """Do not present visibly yellow/brown foliage as healthy.
+
+        PlantVillage-style classifiers can assign a healthy class to real-world
+        photos outside their training data. This is intentionally a conservative
+        guard: it does not diagnose a disease; it only replaces an implausible
+        healthy result with a request for further assessment.
+        """
+        if "healthy" not in result.class_name.lower():
+            return result
+        try:
+            from PIL import Image
+
+            image = Image.open(image_path).convert("HSV").resize((160, 160))
+            pixels = list(image.getdata())
+            # Saturated yellow/orange/brown pixels. Very dark pixels are ignored
+            # so shadows and black backgrounds do not incorrectly trigger it.
+            damaged = sum(
+                1 for hue, saturation, value in pixels
+                if saturation >= 65 and value >= 45 and 8 <= hue <= 48
+            )
+            damaged_share = damaged / len(pixels)
+            if damaged_share >= 0.12:
+                return Prediction(
+                    "Unknown___Visible_leaf_damage",
+                    "Plant (unconfirmed)",
+                    result.confidence,
+                    True,
+                    f"{result.mode} safety check",
+                )
+        except Exception:
+            # A safety enhancement must never make an otherwise usable scan fail.
+            pass
+        return result
 
     def _predict_local_transformers(self, image_path: Path) -> Prediction:
         import torch
