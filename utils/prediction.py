@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,7 +15,7 @@ class Prediction:
 
 
 class PlantPredictor:
-    """Uses a trained MobileNetV3 checkpoint when available; otherwise a deterministic demo."""
+    """Runs a local, lightweight plant-disease classifier when no project model exists."""
 
     def __init__(self, model_path: Path, classes_path: Path, confidence_threshold: float = 0.65,
                  hf_token: str = "", hf_model: str = "", use_local_model: bool = False,
@@ -26,12 +25,13 @@ class PlantPredictor:
         self.confidence_threshold = confidence_threshold
         self.model = None
         self.classes = []
-        self.mode = "demo"
+        self.mode = "unavailable"
         self.hf_token = hf_token
         self.hf_model = hf_model
         self.use_local_model = use_local_model
         self.local_hf_model = local_hf_model
         self.processor = None
+        self.onnx_session = None
         self._load_real_model()
         if self.model is None and self.use_local_model:
             self._load_free_local_model()
@@ -53,37 +53,77 @@ class PlantPredictor:
         except Exception:
             # A broken or incompatible checkpoint should never prevent the web app from running.
             self.model = None
-            self.mode = "demo"
+            self.mode = "unavailable"
 
     def _load_free_local_model(self) -> None:
-        """Load a public PlantVillage model locally; no API key or paid service."""
+        """Load a small public ONNX model locally; no API key or paid service.
+
+        The model files are cached by Hugging Face on the service.  Its label set
+        is intentionally limited to the crops it was trained on; this method
+        never invents coverage for a different crop.
+        """
         try:
-            from transformers import AutoImageProcessor, AutoModelForImageClassification
-            self.processor = AutoImageProcessor.from_pretrained(self.local_hf_model)
-            self.model = AutoModelForImageClassification.from_pretrained(self.local_hf_model)
-            self.model.eval()
+            import onnxruntime as ort
+            from huggingface_hub import hf_hub_download
+
+            model_file = hf_hub_download(repo_id=self.local_hf_model, filename="model.onnx")
+            classes_file = hf_hub_download(repo_id=self.local_hf_model, filename="class_names.json")
+            classes = json.loads(Path(classes_file).read_text(encoding="utf-8"))
+            if not isinstance(classes, list) or not classes:
+                raise ValueError("The local model has no usable class list")
+            self.onnx_session = ort.InferenceSession(
+                model_file, providers=["CPUExecutionProvider"]
+            )
+            self.classes = classes
             self.mode = "local PlantVillage model"
         except Exception:
             self.model = None
             self.processor = None
-            self.mode = "demo"
+            self.onnx_session = None
+            self.mode = "unavailable"
 
     def predict(self, image_path: Path) -> Prediction:
         result: Prediction
-        if self.model is not None:
+        if self.onnx_session is not None:
+            result = self._predict_local_onnx(image_path)
+        elif self.model is not None:
             if self.processor is not None:
                 result = self._predict_local_transformers(image_path)
             else:
                 result = self._predict_real(image_path)
-        elif self.hf_token and self.hf_model:
-            try:
-                result = self._predict_huggingface(image_path)
-            except Exception:
-                # Network/API availability must not make the core app unusable.
-                result = self._predict_demo(image_path)
         else:
-            result = self._predict_demo(image_path)
+            raise RuntimeError(
+                "The local plant model could not start. Please try again after the service finishes starting."
+            )
         return self._apply_visible_damage_guard(image_path, result)
+
+    def _predict_local_onnx(self, image_path: Path) -> Prediction:
+        """Match the published PlantVillage ONNX preprocessing exactly."""
+        import numpy as np
+        from PIL import Image
+
+        image = Image.open(image_path).convert("RGB")
+        # Resize the shorter side then centre crop, as used by the model card.
+        width, height = image.size
+        scale = 256 / min(width, height)
+        resized = image.resize((round(width * scale), round(height * scale)), Image.Resampling.BILINEAR)
+        left = (resized.width - 256) // 2
+        top = (resized.height - 256) // 2
+        image = resized.crop((left, top, left + 256, top + 256))
+        pixels = np.asarray(image, dtype=np.float32) / 255.0
+        pixels = (pixels - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array(
+            [0.229, 0.224, 0.225], dtype=np.float32
+        )
+        batch = np.transpose(pixels, (2, 0, 1))[None, :, :, :]
+        input_name = self.onnx_session.get_inputs()[0].name
+        logits = self.onnx_session.run(None, {input_name: batch})[0][0]
+        shifted = logits - np.max(logits)
+        probabilities = np.exp(shifted) / np.exp(shifted).sum()
+        index = int(np.argmax(probabilities))
+        label = str(self.classes[index])
+        score = float(probabilities[index])
+        plant = label.split("___", 1)[0].replace("_", " ").title()
+        return Prediction(label, plant, score, score < self.confidence_threshold, self.mode)
 
     def _apply_visible_damage_guard(self, image_path: Path, result: Prediction) -> Prediction:
         """Do not present visibly yellow/brown foliage as healthy.
@@ -133,23 +173,6 @@ class PlantPredictor:
         score = float(confidence.item())
         return Prediction(label, plant, score, score < self.confidence_threshold, self.mode)
 
-    def _predict_huggingface(self, image_path: Path) -> Prediction:
-        """Optional hosted inference. Token remains server-side in .env, never JavaScript."""
-        from huggingface_hub import InferenceClient
-        client = InferenceClient(provider="hf-inference", api_key=self.hf_token)
-        responses = client.image_classification(str(image_path), model=self.hf_model)
-        if not responses:
-            raise RuntimeError("Hosted model returned no classifications")
-        best = responses[0]
-        if isinstance(best, dict):
-            label = best.get("label", "Unknown")
-            score = float(best.get("score", 0.0))
-        else:
-            label = best.label
-            score = float(best.score)
-        plant = label.split("___", 1)[0].replace("_", " ").title()
-        return Prediction(label, plant, score, score < self.confidence_threshold, "hosted API")
-
     def _predict_real(self, image_path: Path) -> Prediction:
         import torch
         from PIL import Image
@@ -166,13 +189,3 @@ class PlantPredictor:
         plant = label.split("___", 1)[0].replace("_", " ").title()
         score = float(confidence.item())
         return Prediction(label, plant, score, score < self.confidence_threshold, "trained")
-
-    def _predict_demo(self, image_path: Path) -> Prediction:
-        # This intentionally makes no claim to recognize the image. It permits full UI testing
-        # until a trained checkpoint is added.
-        labels = ["Tomato___Early_blight", "Tomato___healthy", "Potato___Late_blight", "Pepper_bell___healthy"]
-        digest = hashlib.sha256(image_path.read_bytes()).digest()
-        label = labels[digest[0] % len(labels)]
-        confidence = 0.42 + (digest[1] / 255) * 0.18  # always below default threshold
-        plant = label.split("___", 1)[0].replace("_", " ").title()
-        return Prediction(label, plant, round(confidence, 3), True, "demo")

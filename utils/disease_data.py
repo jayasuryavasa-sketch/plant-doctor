@@ -2,12 +2,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from utils.india_crop_guide import india_crop_guides
+
 DATA_FILE = Path(__file__).resolve().parents[1] / "data" / "diseases.json"
 
 
 def all_diseases() -> list[dict]:
     with DATA_FILE.open(encoding="utf-8") as f:
-        return json.load(f)["diseases"]
+        project_entries = json.load(f)["diseases"]
+    return project_entries + india_crop_guides()
 
 
 def get_disease(class_name: str) -> dict | None:
