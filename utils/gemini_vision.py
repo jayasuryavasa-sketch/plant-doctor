@@ -69,9 +69,15 @@ Required JSON shape:
         except HTTPError as error:
             # A 503 is a temporary Google service overload. Retry twice before
             # asking the user to try again; no scan quota is consumed on failure.
-            if error.code == 503 and attempt < 2:
-                time.sleep(attempt + 1)
-                continue
+            if error.code == 503:
+                if attempt < 2:
+                    time.sleep(attempt + 1)
+                    continue
+                # Free shared capacity can be temporarily unavailable for the
+                # primary model. Try the available Flash-Lite vision model once
+                # rather than returning a demo prediction or a fake result.
+                if model != "gemini-2.5-flash-lite":
+                    return analyze_plant_photo(image_path, api_key, "gemini-2.5-flash-lite")
             raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
         except URLError:
             if attempt < 2:
