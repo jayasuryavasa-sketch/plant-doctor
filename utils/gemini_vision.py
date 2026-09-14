@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -58,19 +59,29 @@ Required JSON shape:
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     request = Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    try:
-        with urlopen(request, timeout=25) as response:
-            body = json.loads(response.read().decode("utf-8"))
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        raw = json.loads(text)
-    except HTTPError as error:
-        # Keep the API key out of logs. The HTTP status is enough to diagnose
-        # common configuration, quota, and permission problems in Render.
-        raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
-    except URLError:
-        raise GeminiVisionError("Could not connect to Gemini API") from None
-    except (KeyError, IndexError, TypeError, ValueError, OSError):
-        raise GeminiVisionError("Gemini returned an unreadable analysis") from None
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=25) as response:
+                body = json.loads(response.read().decode("utf-8"))
+            text = body["candidates"][0]["content"]["parts"][0]["text"]
+            raw = json.loads(text)
+            break
+        except HTTPError as error:
+            # A 503 is a temporary Google service overload. Retry twice before
+            # asking the user to try again; no scan quota is consumed on failure.
+            if error.code == 503 and attempt < 2:
+                time.sleep(attempt + 1)
+                continue
+            raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
+        except URLError:
+            if attempt < 2:
+                time.sleep(attempt + 1)
+                continue
+            raise GeminiVisionError("Could not connect to Gemini API") from None
+        except (KeyError, IndexError, TypeError, ValueError, OSError):
+            raise GeminiVisionError("Gemini returned an unreadable analysis") from None
+    else:  # Defensive guard: the loop always exits by success or exception.
+        raise GeminiVisionError("Gemini API did not return an analysis")
 
     disease = _normalise(raw)
     prediction = Prediction(
