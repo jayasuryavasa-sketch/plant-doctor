@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ from utils.disease_data import all_diseases, get_disease
 from utils.advice import answer_question
 from utils.image_validation import ImageValidationError, validate_image
 from utils.prediction import PlantPredictor
+from utils.gemini_vision import analyze_plant_photo
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -45,6 +47,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         DAILY_SCAN_LIMIT=int(os.environ.get("DAILY_SCAN_LIMIT", str(DEFAULT_DAILY_SCAN_LIMIT))),
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+        GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
+        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
     )
     if test_config:
         app.config.update(test_config)
@@ -150,7 +154,14 @@ def create_app(test_config: dict | None = None) -> Flask:
                 image_path.unlink(missing_ok=True)
                 flash(f"You have used all {app.config['DAILY_SCAN_LIMIT']} scans for today. Please try again tomorrow.", "error")
                 return redirect(url_for("scan"))
-            result = app.extensions["predictor"].predict(image_path)
+            ai_result = analyze_plant_photo(
+                image_path, app.config["GEMINI_API_KEY"], app.config["GEMINI_MODEL"]
+            )
+            if ai_result:
+                result, disease = ai_result
+            else:
+                result = app.extensions["predictor"].predict(image_path)
+                disease = get_disease(result.class_name)
         except ImageValidationError as exc:
             image_path.unlink(missing_ok=True)
             flash(str(exc), "error")
@@ -161,7 +172,6 @@ def create_app(test_config: dict | None = None) -> Flask:
             flash("We couldn't analyze this image right now. Please try again.", "error")
             return redirect(url_for("scan"))
 
-        disease = get_disease(result.class_name)
         scan_id = save_scan(app, stored_name, result, disease)
         return redirect(url_for("result", scan_id=scan_id))
 
@@ -172,7 +182,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         scan = get_scan(app, scan_id)
         if scan is None:
             abort(404)
-        disease = get_disease(scan["class_name"])
+        disease = scan_disease(scan)
         return render_template("result.html", scan=scan, disease=disease)
 
     @app.post("/result/<int:scan_id>/ask")
@@ -183,7 +193,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         if scan is None:
             return jsonify({"error": "This scan could not be found."}), 404
         question = str((request.get_json(silent=True) or {}).get("question", ""))[:500]
-        return jsonify({"answer": answer_question(question, get_disease(scan["class_name"]))})
+        return jsonify({"answer": answer_question(question, scan_disease(scan))})
 
     @app.get("/history")
     def history():
@@ -261,9 +271,11 @@ def init_db(app: Flask) -> None:
             is_uncertain INTEGER NOT NULL DEFAULT 0,
             mode TEXT NOT NULL,
             user_id INTEGER,
+            analysis_json TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )""")
         ensure_column(db, "scans", "user_id", "INTEGER")
+        ensure_column(db, "scans", "analysis_json", "TEXT")
         db.execute("""CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             google_sub TEXT NOT NULL UNIQUE,
@@ -385,14 +397,24 @@ def save_scan(app: Flask, image_name: str, prediction, disease: dict | None) -> 
     user = get_current_user(app)
     with connect(app) as db:
         cursor = db.execute(
-            """INSERT INTO scans (image_name, class_name, plant_name, confidence, severity, is_uncertain, mode, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO scans (image_name, class_name, plant_name, confidence, severity, is_uncertain, mode, user_id, analysis_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (image_name, prediction.class_name, prediction.plant, prediction.confidence,
              disease.get("severity") if disease else None, int(prediction.is_uncertain), prediction.mode,
-             user["id"] if user else None),
+             user["id"] if user else None, json.dumps(disease) if disease else None),
         )
         db.commit()
         return cursor.lastrowid
+
+
+def scan_disease(scan) -> dict | None:
+    """Use the stored AI analysis, while retaining old scan compatibility."""
+    if scan["analysis_json"]:
+        try:
+            return json.loads(scan["analysis_json"])
+        except (TypeError, ValueError):
+            pass
+    return get_disease(scan["class_name"])
 
 
 def get_scan(app: Flask, scan_id: int):
