@@ -9,10 +9,14 @@ import base64
 import json
 import mimetypes
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from utils.prediction import Prediction
+
+
+class GeminiVisionError(RuntimeError):
+    """A configured Gemini service could not complete an analysis."""
 
 
 def analyze_plant_photo(image_path: Path, api_key: str, model: str) -> tuple[Prediction, dict] | None:
@@ -59,8 +63,14 @@ Required JSON shape:
             body = json.loads(response.read().decode("utf-8"))
         text = body["candidates"][0]["content"]["parts"][0]["text"]
         raw = json.loads(text)
-    except (KeyError, IndexError, TypeError, ValueError, URLError, OSError):
-        return None
+    except HTTPError as error:
+        # Keep the API key out of logs. The HTTP status is enough to diagnose
+        # common configuration, quota, and permission problems in Render.
+        raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
+    except URLError:
+        raise GeminiVisionError("Could not connect to Gemini API") from None
+    except (KeyError, IndexError, TypeError, ValueError, OSError):
+        raise GeminiVisionError("Gemini returned an unreadable analysis") from None
 
     disease = _normalise(raw)
     prediction = Prediction(

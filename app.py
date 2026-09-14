@@ -20,7 +20,7 @@ from utils.disease_data import all_diseases, get_disease
 from utils.advice import answer_question
 from utils.image_validation import ImageValidationError, validate_image
 from utils.prediction import PlantPredictor
-from utils.gemini_vision import analyze_plant_photo
+from utils.gemini_vision import GeminiVisionError, analyze_plant_photo
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -150,10 +150,6 @@ def create_app(test_config: dict | None = None) -> Flask:
         try:
             file.save(image_path)
             validate_image(image_path, max_bytes=MAX_UPLOAD_BYTES)
-            if not consume_scan_quota(app, get_quota_subject(app)):
-                image_path.unlink(missing_ok=True)
-                flash(f"You have used all {app.config['DAILY_SCAN_LIMIT']} scans for today. Please try again tomorrow.", "error")
-                return redirect(url_for("scan"))
             ai_result = analyze_plant_photo(
                 image_path, app.config["GEMINI_API_KEY"], app.config["GEMINI_MODEL"]
             )
@@ -162,9 +158,18 @@ def create_app(test_config: dict | None = None) -> Flask:
             else:
                 result = app.extensions["predictor"].predict(image_path)
                 disease = get_disease(result.class_name)
+            if not consume_scan_quota(app, get_quota_subject(app)):
+                image_path.unlink(missing_ok=True)
+                flash(f"You have used all {app.config['DAILY_SCAN_LIMIT']} scans for today. Please try again tomorrow.", "error")
+                return redirect(url_for("scan"))
         except ImageValidationError as exc:
             image_path.unlink(missing_ok=True)
             flash(str(exc), "error")
+            return redirect(url_for("scan"))
+        except GeminiVisionError as exc:
+            image_path.unlink(missing_ok=True)
+            app.logger.warning("Gemini vision analysis unavailable: %s", exc)
+            flash("Gemini AI could not analyze the photo right now. Please try again shortly. If this continues, check the Gemini API key and free-tier quota in Render.", "error")
             return redirect(url_for("scan"))
         except Exception:
             image_path.unlink(missing_ok=True)
