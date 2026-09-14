@@ -48,7 +48,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
-        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+        # Gemini 3.8 Flash is the currently supported multimodal Flash model.
+        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
     )
     if test_config:
         app.config.update(test_config)
