@@ -18,8 +18,9 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.get("/scan")
     def scan():
-        crops = {item["plant"] for item in all_diseases()}
-        return render_template("scan.html", crop_count=len(crops))
+        entries = all_diseases()
+        crops = {item["plant"] for item in entries}
+        return render_template("scan.html", crop_count=len(crops), guide_entries=entries)
 
     @app.get("/guide")
     def guide():

@@ -1,1 +1,41 @@
-{% extends 'base.html' %}{% block title %}Explore Crops | Plant Doctor{% endblock %}{% block content %}<section class="page-head"><p class="eyebrow">INDIA CROP REFERENCE</p><h1>Explore your crop.</h1><p>Browse {{ crop_count }} crop categories and compare visible symptoms with responsible guidance.</p></section><section class="scan-layout"><article class="upload-card"><p class="eyebrow">START WITH THE CROP</p><h2>Find practical guidance.</h2><p>Choose the crop first, then compare the entire plant—leaves, stem, fruit, pests, soil and recent weather.</p><a class="button full" href="{{ url_for('guide') }}">Open disease guide <span>→</span></a><p class="form-note">No photo is uploaded, stored, or analysed on this website.</p></article><aside class="camera-card"><p class="eyebrow">USE A CLEAR RECORD</p><h2>What to note.</h2><p>Crop name · plant age · when symptoms began · whether nearby plants are affected · weather and watering changes.</p><p class="form-note">For a spreading or severe problem, contact a nearby Krishi Vigyan Kendra or qualified agriculture officer.</p></aside></section><section class="notice"><b>Important</b><span>This is an educational reference guide. It does not use AI, request an API key, require Google sign-in, impose a daily limit, or provide a confirmed diagnosis.</span></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Compare Your Plant | Plant Doctor{% endblock %}
+{% block content %}
+<section class="page-head">
+  <p class="eyebrow">PHOTO + INDIA CROP GUIDE</p>
+  <h1>Compare your plant.</h1>
+  <p>Add a clear leaf photo, choose the crop and select the condition that most closely matches what you can see.</p>
+</section>
+<section class="scan-layout">
+  <section class="upload-card">
+    <p class="eyebrow">1. ADD A PHOTO</p>
+    <input id="image" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+    <label for="image" class="drop-zone" id="drop-zone">
+      <span class="upload-icon">↑</span>
+      <strong>Insert a leaf picture</strong>
+      <span>JPG, PNG, or WEBP · previewed only in this browser</span>
+    </label>
+    <div id="preview-wrap" hidden>
+      <img id="preview" alt="Selected leaf preview">
+      <button type="button" class="text-button" id="clear-image">Choose another picture</button>
+    </div>
+    <p class="form-note">Your picture is not uploaded to the server, stored, or sent to an AI service.</p>
+  </section>
+  <section class="camera-card">
+    <p class="eyebrow">2. MATCH WITH THE GUIDE</p>
+    <label class="form-label" for="crop-select">Crop</label>
+    <select id="crop-select" class="guide-select">
+      <option value="">Select your crop</option>
+      {% for crop in guide_entries|map(attribute='plant')|unique|sort %}<option value="{{ crop }}">{{ crop }}</option>{% endfor %}
+    </select>
+    <label class="form-label" for="condition-select">Visible condition</label>
+    <select id="condition-select" class="guide-select" disabled>
+      <option value="">Select a crop first</option>
+    </select>
+    <button class="button full" type="button" id="open-guidance" disabled>Show matching guidance <span>→</span></button>
+    <p class="form-note">The guide explains the condition you select. Check the whole plant and seek local advice for serious or spreading problems.</p>
+  </section>
+</section>
+<section class="notice"><b>How this works</b><span>Plant Doctor has {{ crop_count }} crop categories in its India guide. A photo helps you compare visual symptoms, while the crop and condition selection prevents a false automatic diagnosis.</span></section>
+<script id="guide-entries" type="application/json">{{ guide_entries|tojson }}</script>
+{% endblock %}
