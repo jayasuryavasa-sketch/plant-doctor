@@ -77,6 +77,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         use_local_model=app.config["USE_LOCAL_MODEL"],
         local_hf_model=app.config["LOCAL_HF_MODEL"],
     )
+    if app.extensions["predictor"].mode == "unavailable":
+        # Keep the public page safe, but place the precise startup cause in
+        # Render logs so a deployment problem can be fixed rather than hidden.
+        app.logger.warning("Local plant model unavailable: %s", app.extensions["predictor"].load_error)
 
     @app.context_processor
     def globals_for_templates():

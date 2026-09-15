@@ -32,6 +32,7 @@ class PlantPredictor:
         self.local_hf_model = local_hf_model
         self.processor = None
         self.onnx_session = None
+        self.load_error = ""
         self._load_real_model()
         if self.model is None and self.use_local_model:
             self._load_free_local_model()
@@ -50,10 +51,11 @@ class PlantPredictor:
             model.eval()
             self.model = model
             self.mode = "trained"
-        except Exception:
+        except Exception as exc:
             # A broken or incompatible checkpoint should never prevent the web app from running.
             self.model = None
             self.mode = "unavailable"
+            self.load_error = f"Project checkpoint could not load: {type(exc).__name__}: {exc}"
 
     def _load_free_local_model(self) -> None:
         """Load a small public ONNX model locally; no API key or paid service.
@@ -76,11 +78,12 @@ class PlantPredictor:
             )
             self.classes = classes
             self.mode = "local PlantVillage model"
-        except Exception:
+        except Exception as exc:
             self.model = None
             self.processor = None
             self.onnx_session = None
             self.mode = "unavailable"
+            self.load_error = f"Local ONNX model could not load: {type(exc).__name__}: {exc}"
 
     def predict(self, image_path: Path) -> Prediction:
         result: Prediction
@@ -92,9 +95,7 @@ class PlantPredictor:
             else:
                 result = self._predict_real(image_path)
         else:
-            raise RuntimeError(
-                "The local plant model could not start. Please try again after the service finishes starting."
-            )
+            raise RuntimeError(self.load_error or "The local plant model could not start.")
         return self._apply_visible_damage_guard(image_path, result)
 
     def _predict_local_onnx(self, image_path: Path) -> Prediction:
