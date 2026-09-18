@@ -22,7 +22,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
-        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
     )
     if test_config:
         app.config.update(test_config)

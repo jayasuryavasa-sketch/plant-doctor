@@ -66,16 +66,58 @@ not clear, say Plant unconfirmed and Further assessment needed. India guide opti
 
 
 def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[str, Any]:
-    models = [primary_model]
-    if primary_model != "gemini-2.5-flash-lite":
-        models.append("gemini-2.5-flash-lite")
+    models = _unique([primary_model, "gemini-2.5-flash-lite"])
     last_error: GeminiVisionError | None = None
     for model in models:
         try:
             return _request_one_model(payload, api_key, model)
         except GeminiVisionError as exc:
             last_error = exc
+    # Google can expose a different model set to each key, region, and tier.
+    # When fixed names return 404, obtain this key's current model list and try
+    # supported Flash text-and-image models rather than asking the user to guess.
+    if last_error and "HTTP 404" in str(last_error):
+        for model in _available_flash_models(api_key, exclude=models):
+            try:
+                return _request_one_model(payload, api_key, model)
+            except GeminiVisionError as exc:
+                last_error = exc
     raise last_error or GeminiVisionError("The photo analysis service did not return an answer")
+
+
+def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
+    """Return current Generate Content Flash models visible to this API key."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        with urlopen(url, timeout=20) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, OSError, ValueError):
+        return []
+    excluded = set(exclude)
+    candidates = []
+    for item in body.get("models", []):
+        name = str(item.get("name", "")).removeprefix("models/")
+        methods = item.get("supportedGenerationMethods", [])
+        if (
+            name not in excluded
+            and name.startswith("gemini-")
+            and "flash" in name
+            and "tts" not in name
+            and "image" not in name
+            and "generateContent" in methods
+        ):
+            candidates.append(name)
+    preferred = [
+        "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash",
+        "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash",
+        "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite",
+    ]
+    ranking = {name: index for index, name in enumerate(preferred)}
+    return sorted(candidates, key=lambda name: (ranking.get(name, len(preferred)), name))
+
+
+def _unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
 
 
 def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any]:
