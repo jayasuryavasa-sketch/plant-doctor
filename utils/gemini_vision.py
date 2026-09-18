@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 import json
-import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -66,18 +65,15 @@ not clear, say Plant unconfirmed and Further assessment needed. India guide opti
 
 
 def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[str, Any]:
-    models = _unique([primary_model, "gemini-2.5-flash-lite"])
-    last_error: GeminiVisionError | None = None
-    for model in models:
-        try:
-            return _request_one_model(payload, api_key, model)
-        except GeminiVisionError as exc:
-            last_error = exc
+    try:
+        return _request_one_model(payload, api_key, primary_model)
+    except GeminiVisionError as exc:
+        last_error = exc
     # Google can expose a different model set to each key, region, and tier.
     # When fixed names return 404, obtain this key's current model list and try
     # supported Flash text-and-image models rather than asking the user to guess.
     if last_error and "HTTP 404" in str(last_error):
-        for model in _available_flash_models(api_key, exclude=models)[:2]:
+        for model in _available_flash_models(api_key, exclude=[primary_model])[:1]:
             try:
                 return _request_one_model(payload, api_key, model)
             except GeminiVisionError as exc:
@@ -116,35 +112,25 @@ def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
     return sorted(candidates, key=lambda name: (ranking.get(name, len(preferred)), name))
 
 
-def _unique(values: list[str]) -> list[str]:
-    return list(dict.fromkeys(value for value in values if value))
-
-
 def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any]:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     request = Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-    for attempt in range(2):
-        try:
-            with urlopen(request, timeout=18) as response:
-                body = json.loads(response.read().decode("utf-8"))
-            text = body["candidates"][0]["content"]["parts"][0]["text"]
-            value = json.loads(text)
-            if not isinstance(value, dict):
-                raise ValueError("response was not an object")
-            return value
-        except HTTPError as error:
-            if error.code in {429, 500, 502, 503} and attempt == 0:
-                time.sleep(1)
-                continue
-            raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
-        except URLError:
-            if attempt == 0:
-                time.sleep(1)
-                continue
-            raise GeminiVisionError("Could not connect to Gemini") from None
-        except (KeyError, IndexError, TypeError, ValueError):
-            raise GeminiVisionError("Gemini returned an unreadable analysis") from None
-    raise GeminiVisionError("Gemini did not return an analysis")
+    try:
+        # Render permits this request up to 90 seconds. One 55-second attempt
+        # is more reliable than several short attempts that collectively time out.
+        with urlopen(request, timeout=55) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        text = body["candidates"][0]["content"]["parts"][0]["text"]
+        value = json.loads(text)
+        if not isinstance(value, dict):
+            raise ValueError("response was not an object")
+        return value
+    except HTTPError as error:
+        raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
+    except (URLError, TimeoutError, OSError):
+        raise GeminiVisionError("Gemini did not answer within 55 seconds") from None
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise GeminiVisionError("Gemini returned an unreadable analysis") from None
 
 
 def _build_guidance(raw: dict[str, Any], guide_entries: list[dict]) -> dict:
