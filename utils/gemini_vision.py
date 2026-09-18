@@ -58,7 +58,7 @@ not clear, say Plant unconfirmed and Further assessment needed. India guide opti
         "generationConfig": {
             "responseMimeType": "application/json",
             "temperature": 0.1,
-            "maxOutputTokens": 900,
+            "maxOutputTokens": 600,
         },
     }
     raw = _request_analysis(payload, api_key, model)
@@ -77,7 +77,7 @@ def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[s
     # When fixed names return 404, obtain this key's current model list and try
     # supported Flash text-and-image models rather than asking the user to guess.
     if last_error and "HTTP 404" in str(last_error):
-        for model in _available_flash_models(api_key, exclude=models):
+        for model in _available_flash_models(api_key, exclude=models)[:2]:
             try:
                 return _request_one_model(payload, api_key, model)
             except GeminiVisionError as exc:
@@ -125,7 +125,7 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
     request = Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     for attempt in range(2):
         try:
-            with urlopen(request, timeout=35) as response:
+            with urlopen(request, timeout=18) as response:
                 body = json.loads(response.read().decode("utf-8"))
             text = body["candidates"][0]["content"]["parts"][0]["text"]
             value = json.loads(text)
