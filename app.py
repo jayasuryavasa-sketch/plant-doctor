@@ -1,14 +1,29 @@
 from __future__ import annotations
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+import base64
+import os
+from io import BytesIO
+
+from flask import Flask, flash, redirect, render_template, request, url_for
+from PIL import Image, UnidentifiedImageError
 
 from utils.disease_data import all_diseases, get_disease
+from utils.gemini_vision import GeminiVisionError, analyze_plant_image
+
+
+ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 
 def create_app(test_config: dict | None = None) -> Flask:
-    """Create the India crop guidance site without AI or account features."""
+    """Create a no-account plant-photo analysis and India crop guide site."""
     app = Flask(__name__)
-    app.config.from_mapping(SECRET_KEY="not-used-for-guide-only-site")
+    app.config.from_mapping(
+        SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
+        MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
+        GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
+        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+    )
     if test_config:
         app.config.update(test_config)
 
@@ -16,11 +31,45 @@ def create_app(test_config: dict | None = None) -> Flask:
     def index():
         return render_template("index.html")
 
-    @app.get("/scan")
+    @app.route("/scan", methods=["GET", "POST"])
     def scan():
-        entries = all_diseases()
-        crops = {item["plant"] for item in entries}
-        return render_template("scan.html", crop_count=len(crops), guide_entries=entries)
+        if request.method == "GET":
+            return render_template("scan.html")
+
+        image = request.files.get("image")
+        if not image or not image.filename:
+            flash("Choose a JPG, PNG, or WEBP leaf photo first.", "error")
+            return redirect(url_for("scan"))
+        if image.mimetype not in ALLOWED_MIME_TYPES:
+            flash("Please choose a JPG, PNG, or WEBP image.", "error")
+            return redirect(url_for("scan"))
+        image_bytes = image.read()
+        if not image_bytes or len(image_bytes) > MAX_UPLOAD_BYTES:
+            flash("Choose an image smaller than 8 MB.", "error")
+            return redirect(url_for("scan"))
+        try:
+            with Image.open(BytesIO(image_bytes)) as uploaded:
+                uploaded.verify()
+        except (UnidentifiedImageError, OSError):
+            flash("That file is not a readable image. Please choose another photo.", "error")
+            return redirect(url_for("scan"))
+
+        try:
+            disease = analyze_plant_image(
+                image_bytes=image_bytes,
+                mime_type=image.mimetype,
+                api_key=app.config["GEMINI_API_KEY"],
+                model=app.config["GEMINI_MODEL"],
+                guide_entries=all_diseases(),
+            )
+        except GeminiVisionError as exc:
+            app.logger.warning("Plant photo analysis unavailable: %s", exc)
+            flash("Automatic photo analysis is temporarily unavailable. Please try again shortly.", "error")
+            return redirect(url_for("scan"))
+
+        image_data = base64.b64encode(image_bytes).decode("ascii")
+        image_url = f"data:{image.mimetype};base64,{image_data}"
+        return render_template("result.html", disease=disease, image_url=image_url)
 
     @app.get("/guide")
     def guide():
@@ -38,16 +87,17 @@ def create_app(test_config: dict | None = None) -> Flask:
     def disease_detail(slug: str):
         disease = get_disease(slug)
         if disease is None:
-            abort(404)
+            return redirect(url_for("guide"))
         return render_template("disease_detail.html", disease=disease)
-
-    @app.get("/history")
-    def history():
-        return redirect(url_for("guide"))
 
     @app.get("/about")
     def about():
         return render_template("about.html")
+
+    @app.errorhandler(413)
+    def too_large(_error):
+        flash("That image is too large. Please choose one under 8 MB.", "error")
+        return redirect(url_for("scan"))
 
     return app
 

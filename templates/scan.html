@@ -1,41 +1,33 @@
 {% extends 'base.html' %}
-{% block title %}Compare Your Plant | Plant Doctor{% endblock %}
+{% block title %}Check Your Plant | Plant Doctor{% endblock %}
 {% block content %}
 <section class="page-head">
-  <p class="eyebrow">PHOTO + INDIA CROP GUIDE</p>
-  <h1>Compare your plant.</h1>
-  <p>Add a clear leaf photo, choose the crop and select the condition that most closely matches what you can see.</p>
+  <p class="eyebrow">AUTOMATIC PLANT CHECK</p>
+  <h1>Check your plant.</h1>
+  <p>Add one clear leaf photo. Plant Doctor will identify the likely plant and explain the possible condition.</p>
 </section>
 <section class="scan-layout">
-  <section class="upload-card">
-    <p class="eyebrow">1. ADD A PHOTO</p>
-    <input id="image" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+  <form class="upload-card" method="post" enctype="multipart/form-data" id="scan-form">
+    <p class="eyebrow">ADD A PHOTO</p>
+    <input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" hidden required>
     <label for="image" class="drop-zone" id="drop-zone">
       <span class="upload-icon">↑</span>
       <strong>Insert a leaf picture</strong>
-      <span>JPG, PNG, or WEBP · previewed only in this browser</span>
+      <span>JPG, PNG, or WEBP · up to 8 MB</span>
     </label>
     <div id="preview-wrap" hidden>
       <img id="preview" alt="Selected leaf preview">
       <button type="button" class="text-button" id="clear-image">Choose another picture</button>
     </div>
-    <p class="form-note">Your picture is not uploaded to the server, stored, or sent to an AI service.</p>
-  </section>
-  <section class="camera-card">
-    <p class="eyebrow">2. MATCH WITH THE GUIDE</p>
-    <label class="form-label" for="crop-select">Crop</label>
-    <select id="crop-select" class="guide-select">
-      <option value="">Select your crop</option>
-      {% for crop in guide_entries|map(attribute='plant')|unique|sort %}<option value="{{ crop }}">{{ crop }}</option>{% endfor %}
-    </select>
-    <label class="form-label" for="condition-select">Visible condition</label>
-    <select id="condition-select" class="guide-select" disabled>
-      <option value="">Select a crop first</option>
-    </select>
-    <button class="button full" type="button" id="open-guidance" disabled>Show matching guidance <span>→</span></button>
-    <p class="form-note">The guide explains the condition you select. Check the whole plant and seek local advice for serious or spreading problems.</p>
-  </section>
+    <button class="button full" type="submit" id="analyze" disabled>Identify plant and condition <span>→</span></button>
+    <p class="form-note">The photo is analysed once, then discarded. No account, Google sign-in, scan history, or daily limit is used.</p>
+  </form>
+  <aside class="camera-card">
+    <p class="eyebrow">FOR A BETTER RESULT</p>
+    <h2>Photograph one leaf clearly.</h2>
+    <p>Use daylight, fill most of the frame with the leaf, include the affected area, and avoid blur or heavy shadows.</p>
+    <p class="form-note">Results are possible matches, not confirmed field diagnoses. For a serious or spreading issue, consult a Krishi Vigyan Kendra or qualified agriculture officer.</p>
+  </aside>
 </section>
-<section class="notice"><b>How this works</b><span>Plant Doctor has {{ crop_count }} crop categories in its India guide. A photo helps you compare visual symptoms, while the crop and condition selection prevents a false automatic diagnosis.</span></section>
-<script id="guide-entries" type="application/json">{{ guide_entries|tojson }}</script>
+<section class="notice"><b>India crop guide</b><span>The automatic result uses the India-wide crop guide for its explanation. If the image is unclear or a condition is not represented, the site will say that further assessment is needed.</span></section>
 {% endblock %}
