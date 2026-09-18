@@ -97,6 +97,13 @@ def create_app(test_config: dict | None = None) -> Flask:
         flash("That image is too large. Please choose one under 8 MB.", "error")
         return redirect(url_for("scan"))
 
+    @app.errorhandler(Exception)
+    def unexpected_error(error):
+        """Show the deployment owner a safe error category, never secret values."""
+        app.logger.exception("Unexpected application error")
+        safe_reason = type(error).__name__
+        return render_template("service_error.html", reason=safe_reason), 500
+
     return app
 
 
