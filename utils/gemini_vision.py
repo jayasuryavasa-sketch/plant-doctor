@@ -12,6 +12,27 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
+ANALYSIS_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "plant": {"type": "STRING"},
+        "condition": {"type": "STRING"},
+        "guide_slug": {"type": "STRING"},
+        "status": {"type": "STRING"},
+        "severity": {"type": "STRING"},
+        "confidence": {"type": "NUMBER"},
+        "description": {"type": "STRING"},
+        "symptoms": {"type": "ARRAY", "items": {"type": "STRING"}, "maxItems": 3},
+        "immediate_steps": {"type": "ARRAY", "items": {"type": "STRING"}, "maxItems": 3},
+        "notes": {"type": "STRING"},
+    },
+    "required": [
+        "plant", "condition", "guide_slug", "status", "severity", "confidence",
+        "description", "symptoms", "immediate_steps", "notes",
+    ],
+}
+
+
 class GeminiVisionError(RuntimeError):
     """The configured vision service did not complete an image analysis."""
 
@@ -56,8 +77,9 @@ not clear, say Plant unconfirmed and Further assessment needed. India guide opti
         ]}],
         "generationConfig": {
             "responseMimeType": "application/json",
+            "responseSchema": ANALYSIS_SCHEMA,
             "temperature": 0.1,
-            "maxOutputTokens": 600,
+            "maxOutputTokens": 1000,
         },
     }
     raw = _request_analysis(payload, api_key, model)
@@ -120,17 +142,47 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
         # is more reliable than several short attempts that collectively time out.
         with urlopen(request, timeout=55) as response:
             body = json.loads(response.read().decode("utf-8"))
-        text = body["candidates"][0]["content"]["parts"][0]["text"]
-        value = json.loads(text)
-        if not isinstance(value, dict):
-            raise ValueError("response was not an object")
-        return value
+        return _read_analysis_object(body)
     except HTTPError as error:
         raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
     except (URLError, TimeoutError, OSError):
         raise GeminiVisionError("Gemini did not answer within 55 seconds") from None
     except (KeyError, IndexError, TypeError, ValueError):
         raise GeminiVisionError("Gemini returned an unreadable analysis") from None
+
+
+def _read_analysis_object(body: Any) -> dict[str, Any]:
+    """Read JSON even if a model wraps it in a Markdown code fence."""
+    if not isinstance(body, dict):
+        raise ValueError("response was not an object")
+    candidates = body.get("candidates")
+    if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
+        raise ValueError("response did not include a candidate")
+    content = candidates[0].get("content")
+    if not isinstance(content, dict):
+        raise ValueError("response did not include content")
+    parts = content.get("parts")
+    if not isinstance(parts, list):
+        raise ValueError("response did not include text parts")
+    text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
+    if not text:
+        raise ValueError("response did not include analysis text")
+    return _decode_json_object(text)
+
+
+def _decode_json_object(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3]
+    start = cleaned.find("{")
+    if start < 0:
+        raise ValueError("response was not JSON")
+    value, _ = json.JSONDecoder().raw_decode(cleaned[start:])
+    if not isinstance(value, dict):
+        raise ValueError("response JSON was not an object")
+    return value
 
 
 def _build_guidance(raw: dict[str, Any], guide_entries: list[dict]) -> dict:
