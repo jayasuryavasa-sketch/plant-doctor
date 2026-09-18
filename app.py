@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import base64
 import os
-from io import BytesIO
 
 from flask import Flask, flash, redirect, render_template, request, url_for
-from PIL import Image, UnidentifiedImageError
 
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
@@ -47,10 +45,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         if not image_bytes or len(image_bytes) > MAX_UPLOAD_BYTES:
             flash("Choose an image smaller than 8 MB.", "error")
             return redirect(url_for("scan"))
-        try:
-            with Image.open(BytesIO(image_bytes)) as uploaded:
-                uploaded.verify()
-        except (UnidentifiedImageError, OSError):
+        if not _looks_like_image(image_bytes, image.mimetype):
             flash("That file is not a readable image. Please choose another photo.", "error")
             return redirect(url_for("scan"))
 
@@ -103,6 +98,17 @@ def create_app(test_config: dict | None = None) -> Flask:
         return redirect(url_for("scan"))
 
     return app
+
+
+def _looks_like_image(data: bytes, mime_type: str) -> bool:
+    """Verify common image signatures without another deployment dependency."""
+    if mime_type == "image/jpeg":
+        return data.startswith(b"\xff\xd8\xff")
+    if mime_type == "image/png":
+        return data.startswith(b"\x89PNG\r\n\x1a\n")
+    if mime_type == "image/webp":
+        return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    return False
 
 
 app = create_app()
