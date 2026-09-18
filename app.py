@@ -64,7 +64,10 @@ def create_app(test_config: dict | None = None) -> Flask:
             )
         except GeminiVisionError as exc:
             app.logger.warning("Plant photo analysis unavailable: %s", exc)
-            flash("Automatic photo analysis is temporarily unavailable. Please try again shortly.", "error")
+            # The message contains only a safe error category/status, never the
+            # API key or uploaded image. It lets the owner fix Render settings
+            # without having to guess why automatic analysis was unavailable.
+            flash(f"Automatic photo analysis is unavailable: {exc}", "error")
             return redirect(url_for("scan"))
 
         image_data = base64.b64encode(image_bytes).decode("ascii")
