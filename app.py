@@ -13,6 +13,7 @@ from flask import session
 
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
+from utils.image_quality import photo_quality_error
 
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -110,6 +111,9 @@ def create_app(test_config: dict | None = None) -> Flask:
             return _scan_error("Choose an image smaller than 8 MB.")
         if not _looks_like_image(image_bytes, image.mimetype):
             return _scan_error("That file is not a readable image. Please choose another photo.")
+        quality_error = photo_quality_error(image_bytes, image.mimetype)
+        if quality_error:
+            return _scan_error(quality_error)
 
         try:
             disease = analyze_plant_image(
