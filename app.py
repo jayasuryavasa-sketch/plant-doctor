@@ -33,7 +33,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
         # Current multimodal Flash model. The vision helper also checks which
         # models are visible to this specific API key if Google retires a name.
-        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
