@@ -29,9 +29,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
-        # Use Google's maintained Flash alias. Fixed model names can disappear
-        # from an individual free-tier key even while the API key remains valid.
-        GEMINI_MODEL="gemini-flash-latest",
+        # Stable multimodal Flash model documented for the Generate Content API.
+        GEMINI_MODEL="gemini-2.5-flash",
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),

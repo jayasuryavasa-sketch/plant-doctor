@@ -96,11 +96,16 @@ def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[s
         return _request_one_model(payload, api_key, primary_model)
     except GeminiVisionError as exc:
         last_error = exc
-    # Google can expose a different model set to each key, region, and tier.
-    # If the selected model is missing or temporarily unavailable, obtain this
-    # key's current model list and try one available Flash alternative.
+    # Try the lightweight documented Flash model before consulting the model
+    # list. This still works when the model-list endpoint is temporarily slow.
     if last_error and _can_try_alternative_model(last_error):
-        for model in _available_flash_models(api_key, exclude=[primary_model])[:1]:
+        alternatives = ["gemini-2.5-flash-lite"]
+        alternatives.extend(_available_flash_models(api_key, exclude=[primary_model, *alternatives]))
+        tried_models = {primary_model}
+        for model in alternatives:
+            if model in tried_models:
+                continue
+            tried_models.add(model)
             try:
                 return _request_one_model(payload, api_key, model)
             except GeminiVisionError as exc:
@@ -114,9 +119,10 @@ def _can_try_alternative_model(error: GeminiVisionError) -> bool:
 
 def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
     """Return current Generate Content Flash models visible to this API key."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
     try:
-        with urlopen(url, timeout=20) as response:
+        request = Request(url, headers={"x-goog-api-key": api_key})
+        with urlopen(request, timeout=20) as response:
             body = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, OSError, ValueError):
         return []
@@ -144,8 +150,12 @@ def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
 
 
 def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any]:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    request = Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+    )
     try:
         # Render permits this request up to 90 seconds. One 55-second attempt
         # is more reliable than several short attempts that collectively time out.
