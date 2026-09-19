@@ -6,6 +6,9 @@
   <h1>Check your plant.</h1>
   <p>Add one clear leaf photo. Plant Doctor will identify the likely plant and explain the possible condition.</p>
 </section>
+{% if form_error %}
+<div class="flash error" role="alert">{{ form_error }}</div>
+{% endif %}
 <section class="scan-layout">
   <form class="upload-card" method="post" enctype="multipart/form-data" id="scan-form">
     <p class="eyebrow">ADD A PHOTO</p>
@@ -19,6 +22,7 @@
       <img id="preview" alt="Selected leaf preview">
       <button type="button" class="text-button" id="clear-image">Choose another picture</button>
     </div>
+    <p class="form-error" id="upload-error" role="alert" hidden></p>
     <button class="button full" type="submit" id="analyze" disabled>Identify plant and condition <span>→</span></button>
     <p class="form-note">The photo is analysed once, then discarded. No account, Google sign-in, scan history, or daily limit is used.</p>
   </form>

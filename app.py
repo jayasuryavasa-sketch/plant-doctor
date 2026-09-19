@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import os
 
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, redirect, render_template, request, url_for
 
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
@@ -36,18 +36,14 @@ def create_app(test_config: dict | None = None) -> Flask:
 
         image = request.files.get("image")
         if not image or not image.filename:
-            flash("Choose a JPG, PNG, or WEBP leaf photo first.", "error")
-            return redirect(url_for("scan"))
+            return _scan_error("Choose a JPG, PNG, or WEBP leaf photo first.")
         if image.mimetype not in ALLOWED_MIME_TYPES:
-            flash("Please choose a JPG, PNG, or WEBP image.", "error")
-            return redirect(url_for("scan"))
+            return _scan_error("Please choose a JPG, PNG, or WEBP image.")
         image_bytes = image.read()
         if not image_bytes or len(image_bytes) > MAX_UPLOAD_BYTES:
-            flash("Choose an image smaller than 8 MB.", "error")
-            return redirect(url_for("scan"))
+            return _scan_error("Choose an image smaller than 8 MB.")
         if not _looks_like_image(image_bytes, image.mimetype):
-            flash("That file is not a readable image. Please choose another photo.", "error")
-            return redirect(url_for("scan"))
+            return _scan_error("That file is not a readable image. Please choose another photo.")
 
         try:
             disease = analyze_plant_image(
@@ -59,11 +55,7 @@ def create_app(test_config: dict | None = None) -> Flask:
             )
         except GeminiVisionError as exc:
             app.logger.warning("Plant photo analysis unavailable: %s", exc)
-            # The message contains only a safe error category/status, never the
-            # API key or uploaded image. It lets the owner fix Render settings
-            # without having to guess why automatic analysis was unavailable.
-            flash(f"Automatic photo analysis is unavailable: {exc}", "error")
-            return redirect(url_for("scan"))
+            return _scan_error(f"Automatic photo analysis is unavailable: {exc}")
 
         image_data = base64.b64encode(image_bytes).decode("ascii")
         image_url = f"data:{image.mimetype};base64,{image_data}"
@@ -94,8 +86,7 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.errorhandler(413)
     def too_large(_error):
-        flash("That image is too large. Please choose one under 8 MB.", "error")
-        return redirect(url_for("scan"))
+        return _scan_error("That image is too large. Please choose one under 8 MB.")
 
     @app.errorhandler(Exception)
     def unexpected_error(error):
@@ -105,6 +96,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         return render_template("service_error.html", reason=safe_reason), 500
 
     return app
+
+
+def _scan_error(message: str):
+    """Render one upload warning directly, without adding session messages."""
+    return render_template("scan.html", form_error=message), 400
 
 
 def _looks_like_image(data: bytes, mime_type: str) -> bool:
