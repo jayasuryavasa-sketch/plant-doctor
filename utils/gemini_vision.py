@@ -97,15 +97,19 @@ def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[s
     except GeminiVisionError as exc:
         last_error = exc
     # Google can expose a different model set to each key, region, and tier.
-    # When fixed names return 404, obtain this key's current model list and try
-    # supported Flash text-and-image models rather than asking the user to guess.
-    if last_error and "HTTP 404" in str(last_error):
+    # If the selected model is missing or temporarily unavailable, obtain this
+    # key's current model list and try one available Flash alternative.
+    if last_error and _can_try_alternative_model(last_error):
         for model in _available_flash_models(api_key, exclude=[primary_model])[:1]:
             try:
                 return _request_one_model(payload, api_key, model)
             except GeminiVisionError as exc:
                 last_error = exc
     raise last_error or GeminiVisionError("The photo analysis service did not return an answer")
+
+
+def _can_try_alternative_model(error: GeminiVisionError) -> bool:
+    return any(code in str(error) for code in ("HTTP 404", "HTTP 503"))
 
 
 def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
@@ -131,9 +135,9 @@ def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
         ):
             candidates.append(name)
     preferred = [
-        "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash",
-        "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-2.5-flash",
-        "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash",
+        "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-3.8-flash",
     ]
     ranking = {name: index for index, name in enumerate(preferred)}
     return sorted(candidates, key=lambda name: (ranking.get(name, len(preferred)), name))
