@@ -13,7 +13,7 @@ from flask import session
 
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
-from utils.image_quality import photo_quality_error
+from utils.image_quality import compact_image_for_analysis, photo_quality_error
 from utils.plant_classifier import classify_leaf_photo
 
 
@@ -120,14 +120,15 @@ def create_app(test_config: dict | None = None) -> Flask:
         quality_error = photo_quality_error(image_bytes, image.mimetype)
         if quality_error:
             return _scan_error(quality_error)
+        analysis_bytes, analysis_mime_type = compact_image_for_analysis(image_bytes, image.mimetype)
         classifier_hint = None
         if app.config["PLANT_CLASSIFIER_ENABLED"]:
-            classifier_hint = classify_leaf_photo(image_bytes)
+            classifier_hint = classify_leaf_photo(analysis_bytes)
 
         try:
             disease = analyze_plant_image(
-                image_bytes=image_bytes,
-                mime_type=image.mimetype,
+                image_bytes=analysis_bytes,
+                mime_type=analysis_mime_type,
                 api_key=app.config["GEMINI_API_KEY"],
                 model=app.config["GEMINI_MODEL"],
                 guide_entries=all_diseases(),

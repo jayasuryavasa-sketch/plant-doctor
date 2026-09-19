@@ -7,10 +7,12 @@ the future, without changing the Gemini guidance flow.
 """
 from __future__ import annotations
 
+from io import BytesIO
 from typing import Final
 
 
 MINIMUM_EDGE: Final = 240
+ANALYSIS_EDGE: Final = 1024
 
 
 def photo_quality_error(data: bytes, mime_type: str) -> str | None:
@@ -22,6 +24,28 @@ def photo_quality_error(data: bytes, mime_type: str) -> str | None:
     if min(width, height) < MINIMUM_EDGE:
         return "This photo is too small for a reliable plant check. Please upload a clearer photo at least 240 pixels wide and high."
     return None
+
+
+def compact_image_for_analysis(data: bytes, original_mime_type: str) -> tuple[bytes, str]:
+    """Create a compact JPEG for the remote vision request only.
+
+    The original upload is still used for the user's preview. Reducing a large
+    phone-camera image avoids slow multi-megabyte requests without altering the
+    visible leaf information needed for analysis.
+    """
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(BytesIO(data)) as source:
+            image = ImageOps.exif_transpose(source).convert("RGB")
+            image.thumbnail((ANALYSIS_EDGE, ANALYSIS_EDGE))
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=85, optimize=True)
+        return output.getvalue(), "image/jpeg"
+    except Exception:
+        # The signature and dimension checks have already passed. If Pillow has
+        # a decoder issue, send the original rather than preventing the scan.
+        return data, original_mime_type
 
 
 def _image_dimensions(data: bytes, mime_type: str) -> tuple[int, int] | None:

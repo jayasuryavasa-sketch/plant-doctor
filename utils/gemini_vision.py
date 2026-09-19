@@ -82,12 +82,7 @@ visible plant leaf at all.{hint_text}"""
             {"text": prompt},
             {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode("ascii")}},
         ]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": ANALYSIS_SCHEMA,
-            "temperature": 0.1,
-            "maxOutputTokens": 350,
-        },
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 350},
     }
     raw = _request_analysis(payload, api_key, model)
     return _build_guidance(raw, guide_entries)
