@@ -13,8 +13,6 @@ from flask import session
 
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
-from utils.image_quality import compact_image_for_analysis, photo_quality_error
-from utils.plant_classifier import classify_leaf_photo
 
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -31,16 +29,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
-        # Current multimodal Flash model. The vision helper also checks which
-        # models are visible to this specific API key if Google retires a name.
-        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+        # Stable multimodal Flash model documented for the Generate Content API.
+        GEMINI_MODEL="gemini-2.5-flash",
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
-        # Keep the optional local model off unless the service owner explicitly
-        # enables it. Downloading model weights during a free web request can
-        # exceed the worker timeout; Gemini remains the reliable default.
-        PLANT_CLASSIFIER_ENABLED=os.environ.get("PLANT_CLASSIFIER_ENABLED", "false").lower() == "true",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=True,
@@ -117,22 +110,14 @@ def create_app(test_config: dict | None = None) -> Flask:
             return _scan_error("Choose an image smaller than 8 MB.")
         if not _looks_like_image(image_bytes, image.mimetype):
             return _scan_error("That file is not a readable image. Please choose another photo.")
-        quality_error = photo_quality_error(image_bytes, image.mimetype)
-        if quality_error:
-            return _scan_error(quality_error)
-        analysis_bytes, analysis_mime_type = compact_image_for_analysis(image_bytes, image.mimetype)
-        classifier_hint = None
-        if app.config["PLANT_CLASSIFIER_ENABLED"]:
-            classifier_hint = classify_leaf_photo(analysis_bytes)
 
         try:
             disease = analyze_plant_image(
-                image_bytes=analysis_bytes,
-                mime_type=analysis_mime_type,
+                image_bytes=image_bytes,
+                mime_type=image.mimetype,
                 api_key=app.config["GEMINI_API_KEY"],
                 model=app.config["GEMINI_MODEL"],
                 guide_entries=all_diseases(),
-                classifier_hint=classifier_hint,
             )
         except GeminiVisionError as exc:
             app.logger.warning("Plant photo analysis unavailable: %s", exc)
