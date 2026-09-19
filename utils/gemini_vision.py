@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 import json
-from time import sleep
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -94,7 +93,7 @@ visible plant leaf at all. India guide options:
             "responseMimeType": "application/json",
             "responseSchema": ANALYSIS_SCHEMA,
             "temperature": 0.1,
-            "maxOutputTokens": 1000,
+            "maxOutputTokens": 550,
         },
     }
     raw = _request_analysis(payload, api_key, model)
@@ -102,31 +101,8 @@ visible plant leaf at all. India guide options:
 
 
 def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[str, Any]:
-    try:
-        return _request_one_model(payload, api_key, primary_model)
-    except GeminiVisionError as exc:
-        last_error = exc
-    # HTTP 503 is an upstream service interruption, not an invalid image or API
-    # key. One brief retry handles a short Gemini capacity interruption without
-    # making the user upload the photo again.
-    if "HTTP 503" in str(last_error):
-        sleep(2)
-        try:
-            return _request_one_model(payload, api_key, primary_model)
-        except GeminiVisionError as exc:
-            last_error = exc
-    # When Google retires a model name, ask which Generate Content models this
-    # particular key can use. Keep the lookup and retry short for Render.
-    if last_error and _can_try_alternative_model(last_error):
-        alternatives = _available_flash_models(api_key, exclude=[primary_model])
-        if not alternatives and primary_model != "gemini-3.8-flash":
-            alternatives = ["gemini-3.8-flash"]
-        for model in alternatives[:1]:
-            try:
-                return _request_one_model(payload, api_key, model)
-            except GeminiVisionError as exc:
-                last_error = exc
-    raise last_error or GeminiVisionError("The photo analysis service did not return an answer")
+    """Use one bounded external request so an outage cannot block the site."""
+    return _request_one_model(payload, api_key, primary_model)
 
 
 def _can_try_alternative_model(error: GeminiVisionError) -> bool:
@@ -169,8 +145,8 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     try:
-        # Keep all attempts comfortably below Render's worker limit.
-        with urlopen(request, timeout=18) as response:
+        # A bounded request leaves the Render worker responsive during outages.
+        with urlopen(request, timeout=20) as response:
             body = json.loads(response.read().decode("utf-8"))
         return _read_analysis_object(body)
     except HTTPError as error:
