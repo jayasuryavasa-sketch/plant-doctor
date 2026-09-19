@@ -105,13 +105,15 @@ def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[s
         return _request_one_model(payload, api_key, primary_model)
     except GeminiVisionError as exc:
         last_error = exc
-    # Try one documented backup. Do not make another model-list network request
-    # here: Render has a single web worker and a long chain of retries can block
-    # every page until Gunicorn terminates the worker.
+    # When Google retires a model name, ask which Generate Content models this
+    # particular key can use. Keep the lookup and retry short for Render.
     if last_error and _can_try_alternative_model(last_error):
-        if primary_model != "gemini-2.5-flash-lite":
+        alternatives = _available_flash_models(api_key, exclude=[primary_model])
+        if not alternatives and primary_model != "gemini-3.8-flash":
+            alternatives = ["gemini-3.8-flash"]
+        for model in alternatives[:1]:
             try:
-                return _request_one_model(payload, api_key, "gemini-2.5-flash-lite")
+                return _request_one_model(payload, api_key, model)
             except GeminiVisionError as exc:
                 last_error = exc
     raise last_error or GeminiVisionError("The photo analysis service did not return an answer")
@@ -123,10 +125,10 @@ def _can_try_alternative_model(error: GeminiVisionError) -> bool:
 
 def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
     """Return current Generate Content Flash models visible to this API key."""
-    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
     try:
         request = Request(url, headers={"x-goog-api-key": api_key})
-        with urlopen(request, timeout=20) as response:
+        with urlopen(request, timeout=8) as response:
             body = json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, OSError, ValueError):
         return []
@@ -134,7 +136,7 @@ def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
     candidates = []
     for item in body.get("models", []):
         name = str(item.get("name", "")).removeprefix("models/")
-        methods = item.get("supportedGenerationMethods", [])
+        methods = item.get("supportedGenerationMethods", item.get("supportedActions", []))
         if (
             name not in excluded
             and name.startswith("gemini-")
@@ -144,11 +146,7 @@ def _available_flash_models(api_key: str, exclude: list[str]) -> list[str]:
             and "generateContent" in methods
         ):
             candidates.append(name)
-    preferred = [
-        "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.6-flash",
-        "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-3.8-flash",
-    ]
+    preferred = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
     ranking = {name: index for index, name in enumerate(preferred)}
     return sorted(candidates, key=lambda name: (ranking.get(name, len(preferred)), name))
 
@@ -161,8 +159,8 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     try:
-        # Keep two attempts comfortably below the 90-second Render worker limit.
-        with urlopen(request, timeout=35) as response:
+        # Keep lookup plus two attempts comfortably below Render's worker limit.
+        with urlopen(request, timeout=25) as response:
             body = json.loads(response.read().decode("utf-8"))
         return _read_analysis_object(body)
     except HTTPError as error:
