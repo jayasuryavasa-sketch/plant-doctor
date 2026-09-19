@@ -27,3 +27,4 @@
 .account-chip{display:inline-flex;align-items:center;max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:.45rem .75rem;border:1px solid rgba(22,101,52,.18);border-radius:999px;color:#166534;font-size:.82rem;background:rgba(255,255,255,.55)}
 .form-error{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:#fee2e2;color:#991b1b;font-size:14px}
 .result-label{margin:18px 0 4px;color:#64748b;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.result-condition{margin:0 0 20px;color:#17301f;font:600 clamp(1.25rem,2.6vw,1.8rem)/1.2 'Playfair Display',serif}
+.nav-action{border:0;border-radius:999px;padding:8px 13px;background:#fff;color:#166534;font:600 14px 'DM Sans',sans-serif;cursor:pointer;white-space:nowrap}.sign-out-form{margin:0}.auth-message{max-width:720px;min-height:55vh;margin:0 auto;padding:95px 5vw}.auth-message>p:not(.eyebrow){max-width:560px;margin:20px 0 28px;color:#64748b;font-size:18px}

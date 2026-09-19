@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
+from secrets import token_urlsafe
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from flask import Flask, redirect, render_template, request, url_for
+from flask import session
 
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
@@ -11,10 +17,13 @@ from utils.gemini_vision import GeminiVisionError, analyze_plant_image
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
 
 def create_app(test_config: dict | None = None) -> Flask:
-    """Create a no-account plant-photo analysis and India crop guide site."""
+    """Create a plant-photo analysis site with optional Google sign-in."""
     app = Flask(__name__)
     app.config.from_mapping(
         SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
@@ -23,6 +32,12 @@ def create_app(test_config: dict | None = None) -> Flask:
         # Use Google's maintained Flash alias. Fixed model names can disappear
         # from an individual free-tier key even while the API key remains valid.
         GEMINI_MODEL="gemini-flash-latest",
+        GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
+        GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+        GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=True,
     )
     if test_config:
         app.config.update(test_config)
@@ -30,6 +45,56 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.get("/")
     def index():
         return render_template("index.html")
+
+    @app.context_processor
+    def add_sign_in_context():
+        return {
+            "current_user": session.get("current_user"),
+            "google_sign_in_enabled": bool(
+                app.config["GOOGLE_CLIENT_ID"] and app.config["GOOGLE_CLIENT_SECRET"]
+            ),
+        }
+
+    @app.get("/auth/google")
+    def google_sign_in():
+        if not app.config["GOOGLE_CLIENT_ID"] or not app.config["GOOGLE_CLIENT_SECRET"]:
+            return _auth_error("Google sign-in has not been connected by the site owner yet.")
+        state = token_urlsafe(32)
+        session["google_oauth_state"] = state
+        parameters = {
+            "client_id": app.config["GOOGLE_CLIENT_ID"],
+            "redirect_uri": _google_redirect_uri(app),
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "prompt": "select_account",
+        }
+        return redirect(f"{GOOGLE_AUTHORIZE_URL}?{urlencode(parameters)}")
+
+    @app.get("/auth/google/callback")
+    def google_callback():
+        if request.args.get("state") != session.pop("google_oauth_state", None):
+            return _auth_error("Google sign-in could not be verified. Please try again.")
+        code = request.args.get("code")
+        if not code:
+            return _auth_error("Google sign-in was cancelled or did not return a code.")
+        try:
+            user = _get_google_user(app, code)
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, KeyError):
+            return _auth_error("Google sign-in could not be completed. Please try again.")
+        if not user.get("email") or not user.get("email_verified"):
+            return _auth_error("Please choose a Google account with a verified email address.")
+        session["current_user"] = {
+            "name": str(user.get("name") or user["email"]).strip(),
+            "email": str(user["email"]).strip(),
+        }
+        return redirect(url_for("index"))
+
+    @app.post("/auth/sign-out")
+    def sign_out():
+        session.pop("current_user", None)
+        session.pop("google_oauth_state", None)
+        return redirect(url_for("index"))
 
     @app.route("/scan", methods=["GET", "POST"])
     def scan():
@@ -103,6 +168,44 @@ def create_app(test_config: dict | None = None) -> Flask:
 def _scan_error(message: str):
     """Render one upload warning directly, without adding session messages."""
     return render_template("scan.html", form_error=message), 400
+
+
+def _auth_error(message: str):
+    return render_template("auth_error.html", message=message), 400
+
+
+def _google_redirect_uri(app: Flask) -> str:
+    configured = app.config["GOOGLE_REDIRECT_URI"].strip()
+    if configured:
+        return configured
+    return url_for("google_callback", _external=True, _scheme="https")
+
+
+def _get_google_user(app: Flask, code: str) -> dict:
+    token_payload = urlencode({
+        "code": code,
+        "client_id": app.config["GOOGLE_CLIENT_ID"],
+        "client_secret": app.config["GOOGLE_CLIENT_SECRET"],
+        "redirect_uri": _google_redirect_uri(app),
+        "grant_type": "authorization_code",
+    }).encode("utf-8")
+    token_request = Request(
+        GOOGLE_TOKEN_URL,
+        data=token_payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urlopen(token_request, timeout=20) as response:
+        token = json.loads(response.read().decode("utf-8"))
+    access_token = token["access_token"]
+    user_request = Request(
+        GOOGLE_USERINFO_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    with urlopen(user_request, timeout=20) as response:
+        user = json.loads(response.read().decode("utf-8"))
+    if not isinstance(user, dict):
+        raise ValueError("Google returned an invalid user profile")
+    return user
 
 
 def _looks_like_image(data: bytes, mime_type: str) -> bool:

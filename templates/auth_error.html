@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Google Sign-in | Plant Doctor{% endblock %}
+{% block content %}
+<section class="auth-message">
+  <p class="eyebrow">GOOGLE SIGN-IN</p>
+  <h1>Sign-in needs attention.</h1>
+  <p>{{ message }}</p>
+  <a class="button" href="{{ url_for('index') }}">Return home</a>
+</section>
+{% endblock %}
