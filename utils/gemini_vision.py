@@ -38,7 +38,8 @@ class GeminiVisionError(RuntimeError):
 
 
 def analyze_plant_image(
-    *, image_bytes: bytes, mime_type: str, api_key: str, model: str, guide_entries: list[dict]
+    *, image_bytes: bytes, mime_type: str, api_key: str, model: str, guide_entries: list[dict],
+    classifier_hint: dict[str, Any] | None = None,
 ) -> dict:
     """Identify the pictured plant and return careful matching guidance."""
     if not api_key:
@@ -48,6 +49,14 @@ def analyze_plant_image(
         {"slug": item["slug"], "plant": item["plant"], "condition": item["name"]}
         for item in guide_entries
     ]
+    hint_text = ""
+    if classifier_hint:
+        hint_text = f"""
+A separate limited-coverage classifier suggested `{classifier_hint['label']}` with
+{classifier_hint['confidence']:.0%} confidence. Treat this only as a supporting clue: it was
+trained on a restricted PlantVillage label set and may be wrong for field photos or Indian crops.
+Verify it against the visible image; ignore it when it does not fit.
+"""
     prompt = f"""You are a careful Indian crop-health assistant. Inspect the attached plant photo.
 First identify the pictured leaf. Return the single best likely common plant or crop name whenever
 a plant leaf is visible, even if confidence is low. A crop does not need to appear in the guide
@@ -74,7 +83,7 @@ Only call a leaf healthy when the photo strongly supports it. If the leaf is vis
 species is uncertain, still provide the nearest likely plant name and use a low confidence score,
 "Needs review" status, and a cautious description. Use "Plant unconfirmed" only when there is no
 visible plant leaf at all. India guide options:
-{json.dumps(guide_options, ensure_ascii=False)}"""
+{json.dumps(guide_options, ensure_ascii=False)}{hint_text}"""
     payload = {
         "contents": [{"parts": [
             {"text": prompt},

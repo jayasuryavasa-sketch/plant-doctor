@@ -14,6 +14,7 @@ from flask import session
 from utils.disease_data import all_diseases, get_disease
 from utils.gemini_vision import GeminiVisionError, analyze_plant_image
 from utils.image_quality import photo_quality_error
+from utils.plant_classifier import classify_leaf_photo
 
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -35,6 +36,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
+        PLANT_CLASSIFIER_ENABLED=os.environ.get("PLANT_CLASSIFIER_ENABLED", "true").lower() == "true",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=True,
@@ -114,6 +116,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         quality_error = photo_quality_error(image_bytes, image.mimetype)
         if quality_error:
             return _scan_error(quality_error)
+        classifier_hint = None
+        if app.config["PLANT_CLASSIFIER_ENABLED"]:
+            classifier_hint = classify_leaf_photo(image_bytes)
 
         try:
             disease = analyze_plant_image(
@@ -122,6 +127,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 api_key=app.config["GEMINI_API_KEY"],
                 model=app.config["GEMINI_MODEL"],
                 guide_entries=all_diseases(),
+                classifier_hint=classifier_hint,
             )
         except GeminiVisionError as exc:
             app.logger.warning("Plant photo analysis unavailable: %s", exc)
