@@ -20,7 +20,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
-        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+        # Use Google's maintained Flash alias. Fixed model names can disappear
+        # from an individual free-tier key even while the API key remains valid.
+        GEMINI_MODEL="gemini-flash-latest",
     )
     if test_config:
         app.config.update(test_config)
