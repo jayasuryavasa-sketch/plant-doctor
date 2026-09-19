@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+from time import sleep
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -105,6 +106,15 @@ def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[s
         return _request_one_model(payload, api_key, primary_model)
     except GeminiVisionError as exc:
         last_error = exc
+    # HTTP 503 is an upstream service interruption, not an invalid image or API
+    # key. One brief retry handles a short Gemini capacity interruption without
+    # making the user upload the photo again.
+    if "HTTP 503" in str(last_error):
+        sleep(2)
+        try:
+            return _request_one_model(payload, api_key, primary_model)
+        except GeminiVisionError as exc:
+            last_error = exc
     # When Google retires a model name, ask which Generate Content models this
     # particular key can use. Keep the lookup and retry short for Render.
     if last_error and _can_try_alternative_model(last_error):
@@ -159,8 +169,8 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     try:
-        # Keep lookup plus two attempts comfortably below Render's worker limit.
-        with urlopen(request, timeout=25) as response:
+        # Keep all attempts comfortably below Render's worker limit.
+        with urlopen(request, timeout=18) as response:
             body = json.loads(response.read().decode("utf-8"))
         return _read_analysis_object(body)
     except HTTPError as error:
