@@ -36,7 +36,10 @@ def create_app(test_config: dict | None = None) -> Flask:
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
-        PLANT_CLASSIFIER_ENABLED=os.environ.get("PLANT_CLASSIFIER_ENABLED", "true").lower() == "true",
+        # Keep the optional local model off unless the service owner explicitly
+        # enables it. Downloading model weights during a free web request can
+        # exceed the worker timeout; Gemini remains the reliable default.
+        PLANT_CLASSIFIER_ENABLED=os.environ.get("PLANT_CLASSIFIER_ENABLED", "false").lower() == "true",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=True,
