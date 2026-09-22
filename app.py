@@ -31,9 +31,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         SECRET_KEY=os.environ.get("SECRET_KEY", "replace-this-before-production"),
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         GEMINI_API_KEY=os.environ.get("GEMINI_API_KEY", ""),
-        # Current multimodal Flash model. The vision helper also checks which
-        # models are visible to this specific API key if Google retires a name.
-        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+        # This project has a higher free-tier request allowance for Flash Lite.
+        GEMINI_MODEL=os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+        GEMINI_FALLBACK_MODEL=os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite"),
         GOOGLE_CLIENT_ID=os.environ.get("GOOGLE_CLIENT_ID", ""),
         GOOGLE_CLIENT_SECRET=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
         GOOGLE_REDIRECT_URI=os.environ.get("GOOGLE_REDIRECT_URI", ""),
@@ -131,6 +131,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 mime_type=analysis_mime_type,
                 api_key=app.config["GEMINI_API_KEY"],
                 model=app.config["GEMINI_MODEL"],
+                fallback_model=app.config["GEMINI_FALLBACK_MODEL"],
                 guide_entries=all_diseases(),
                 classifier_hint=classifier_hint,
             )

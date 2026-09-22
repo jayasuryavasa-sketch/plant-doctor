@@ -39,7 +39,7 @@ class GeminiVisionError(RuntimeError):
 
 def analyze_plant_image(
     *, image_bytes: bytes, mime_type: str, api_key: str, model: str, guide_entries: list[dict],
-    classifier_hint: dict[str, Any] | None = None,
+    classifier_hint: dict[str, Any] | None = None, fallback_model: str = "",
 ) -> dict:
     """Identify the pictured plant and return careful matching guidance."""
     if not api_key:
@@ -82,15 +82,23 @@ visible plant leaf at all.{hint_text}"""
             {"text": prompt},
             {"inline_data": {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode("ascii")}},
         ]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 350},
+        # Keep the full, detailed result while limiting unnecessary verbosity.
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 600},
     }
-    raw = _request_analysis(payload, api_key, model)
+    raw = _request_analysis(payload, api_key, model, fallback_model)
     return _build_guidance(raw, guide_entries)
 
 
-def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[str, Any]:
-    """Use one bounded external request so an outage cannot block the site."""
-    return _request_one_model(payload, api_key, primary_model)
+def _request_analysis(
+    payload: dict, api_key: str, primary_model: str, fallback_model: str
+) -> dict[str, Any]:
+    """Use one free alternate model only for Gemini's temporary 503 outage."""
+    try:
+        return _request_one_model(payload, api_key, primary_model)
+    except GeminiVisionError as error:
+        if "HTTP 503" not in str(error) or not fallback_model or fallback_model == primary_model:
+            raise
+    return _request_one_model(payload, api_key, fallback_model)
 
 
 def _can_try_alternative_model(error: GeminiVisionError) -> bool:
@@ -133,8 +141,8 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     try:
-        # A concise request keeps this below Render's worker limit.
-        with urlopen(request, timeout=35) as response:
+        # Two bounded attempts still remain below the 60-second web-worker limit.
+        with urlopen(request, timeout=18) as response:
             body = json.loads(response.read().decode("utf-8"))
         return _read_analysis_object(body)
     except HTTPError as error:
