@@ -92,11 +92,12 @@ visible plant leaf at all.{hint_text}"""
 def _request_analysis(
     payload: dict, api_key: str, primary_model: str, fallback_model: str
 ) -> dict[str, Any]:
-    """Use one free alternate model only for Gemini's temporary 503 outage."""
+    """Use one free alternate model for a temporary Gemini outage or timeout."""
     try:
         return _request_one_model(payload, api_key, primary_model)
     except GeminiVisionError as error:
-        if "HTTP 503" not in str(error) or not fallback_model or fallback_model == primary_model:
+        retryable = "HTTP 503" in str(error) or "did not answer in time" in str(error)
+        if not retryable or not fallback_model or fallback_model == primary_model:
             raise
     return _request_one_model(payload, api_key, fallback_model)
 
