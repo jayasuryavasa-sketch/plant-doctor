@@ -202,12 +202,32 @@ def _build_guidance(raw: dict[str, Any], guide_entries: list[dict]) -> dict:
         guidance = _unlisted_guidance(plant, condition)
     guidance["status"] = _text(raw.get("status"), guidance["status"])
     guidance["severity"] = _text(raw.get("severity"), guidance["severity"])
+    guidance["fertilizer_guidance"] = _fertilizer_guidance(
+        plant=guidance["plant"],
+        condition=guidance["name"],
+        status=guidance["status"],
+    )
     guidance["confidence"] = confidence
     guidance["description"] = _text(raw.get("description"), guidance["description"])
     guidance["symptoms"] = _items(raw.get("symptoms"), guidance["symptoms"])
     guidance["immediate_steps"] = _items(raw.get("immediate_steps"), guidance["immediate_steps"])
     guidance["notes"] = _text(raw.get("notes"), "Photo-based guidance is not a confirmed field diagnosis.")
     return guidance
+
+
+def _fertilizer_guidance(*, plant: str, condition: str, status: str) -> list[str]:
+    if status.strip().lower() == "healthy":
+        return [
+            f"No corrective fertilizer is indicated from this photo of {plant}.",
+            "Use a crop-specific balanced fertilizer only as part of the normal schedule or after a soil test.",
+            "Follow the product label and local agricultural guidance; avoid over-fertilizing.",
+        ]
+
+    return [
+        f"Fertilizer will not cure {condition}. Confirm the cause before changing plant nutrition.",
+        "Avoid heavy nitrogen fertilizer while leaf symptoms are active, because it can add stress and promote soft new growth.",
+        f"For {plant}, use a soil test and local crop guidance to choose a balanced fertilizer only if a nutrient deficiency is confirmed.",
+    ]
 
 
 def _unlisted_guidance(plant: str, condition: str) -> dict:
