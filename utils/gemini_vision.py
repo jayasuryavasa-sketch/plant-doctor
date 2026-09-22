@@ -92,25 +92,8 @@ visible plant leaf at all. India guide options:
 
 
 def _request_analysis(payload: dict, api_key: str, primary_model: str) -> dict[str, Any]:
-    try:
-        return _request_one_model(payload, api_key, primary_model)
-    except GeminiVisionError as exc:
-        last_error = exc
-    # Try the lightweight documented Flash model before consulting the model
-    # list. This still works when the model-list endpoint is temporarily slow.
-    if last_error and _can_try_alternative_model(last_error):
-        alternatives = ["gemini-2.5-flash-lite"]
-        alternatives.extend(_available_flash_models(api_key, exclude=[primary_model, *alternatives]))
-        tried_models = {primary_model}
-        for model in alternatives:
-            if model in tried_models:
-                continue
-            tried_models.add(model)
-            try:
-                return _request_one_model(payload, api_key, model)
-            except GeminiVisionError as exc:
-                last_error = exc
-    raise last_error or GeminiVisionError("The photo analysis service did not return an answer")
+    """Make one bounded request so an upstream delay cannot stop the web app."""
+    return _request_one_model(payload, api_key, primary_model)
 
 
 def _can_try_alternative_model(error: GeminiVisionError) -> bool:
@@ -157,15 +140,13 @@ def _request_one_model(payload: dict, api_key: str, model: str) -> dict[str, Any
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     try:
-        # Render permits this request up to 90 seconds. One 55-second attempt
-        # is more reliable than several short attempts that collectively time out.
-        with urlopen(request, timeout=55) as response:
+        with urlopen(request, timeout=20) as response:
             body = json.loads(response.read().decode("utf-8"))
         return _read_analysis_object(body)
     except HTTPError as error:
         raise GeminiVisionError(f"Gemini API returned HTTP {error.code}") from None
     except (URLError, TimeoutError, OSError):
-        raise GeminiVisionError("Gemini did not answer within 55 seconds") from None
+        raise GeminiVisionError("Gemini did not answer in time. Please try again shortly") from None
     except (KeyError, IndexError, TypeError, ValueError):
         raise GeminiVisionError("Gemini returned an unreadable analysis") from None
 
